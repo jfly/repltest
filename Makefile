@@ -11,9 +11,8 @@ $(BUILD)/myreadline.so: myreadline.c | $(BUILD)
 
 .PHONY: run
 run: $(BUILD)/rltest $(BUILD)/myreadline.so
-	LD_PRELOAD=$(BUILD)/myreadline.so $(BUILD)/rltest
-	# LD_DEBUG=all LD_PRELOAD=$PWD/myreadline.so ./rltest
-	# LD_DEBUG=all LD_PRELOAD=$PWD/myreadline.so python
+	# <<< LD_PRELOAD=$(BUILD)/myreadline.so $(BUILD)/rltest
+	LD_DEBUG=all LD_PRELOAD=$(BUILD)/myreadline.so python
 
 .PHONY: clean
 clean:

@@ -1,15 +1,15 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+// Requires `FILE` from `stdio.h`
 #include <readline/history.h>
 #include <readline/readline.h>
-#include <stdio.h>
-#include <stdlib.h> /* for free() */
-#include <unistd.h> /* for usleep() */
 
 char running = 1;
 
-// The function that'll get passed each line of input
 void my_rlhandler(char *line) {
   if (line == NULL) {
-    // Ctrl-D will allow us to exit nicely
     printf("\nend of line\n");
     running = 0;
   } else {
@@ -22,9 +22,8 @@ void my_rlhandler(char *line) {
   }
 }
 
-// The main entry-point for the program
 int main() {
-  const char *prompt = "WOOP> ";
+  const char *prompt = "prompt> ";
 
   // Install the handler
   rl_callback_handler_install(prompt, (rl_vcpfunc_t *)&my_rlhandler);
