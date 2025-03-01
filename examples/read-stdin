@@ -1,0 +1,16 @@
+#!/usr/bin/env python
+
+# vi: ft=python
+
+import sys
+
+while True:
+    print("# ", end="", flush=True)
+    data = sys.stdin.readline()
+
+    if data == "bye\n" or data == "":
+        break
+
+    print(data, end="")
+
+print("Goodbye!")
