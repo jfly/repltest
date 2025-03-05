@@ -13,23 +13,19 @@ $(OUT)/examples/fgets: examples/fgets.c | $(OUT)
 $(OUT)/examples/input: examples/input.c | $(OUT)
 	gcc -Wall -lreadline examples/input.c -o $(OUT)/examples/input
 
-$(OUT)/myread.so: myread.c | $(OUT)
-	gcc -g -o $(OUT)/myread.so -shared myread.c
-
 .PHONY: build
-build: $(OUT)/examples/rltest $(OUT)/examples/fgets $(OUT)/examples/input $(OUT)/myread.so
+build: $(OUT)/examples/rltest $(OUT)/examples/fgets $(OUT)/examples/input
 
 .PHONY: run
 run: build
 	echo "" > /tmp/read  #<<< TODO
-	# <<< LD_PRELOAD=$(OUT)/myread.so $(OUT)/examples/rltest
-	LD_PRELOAD=$(OUT)/myread.so $(OUT)/examples/fgets
-	# <<< LD_PRELOAD=$(OUT)/myread.so $(OUT)/examples/input
-	# <<< LD_PRELOAD=$(OUT)/myread.so python
-	# <<< LD_PRELOAD=$(OUT)/myread.so cat
-	# <<< LD_PRELOAD=$(OUT)/myread.so ./test
-	# <<< LD_DEBUG=all LD_PRELOAD=$(OUT)/myread.so examples/input
-	# <<< LD_DEBUG=all LD_PRELOAD=$(OUT)/myread.so examples/read-stdin
+	# <<< ./instrument.py $(OUT)/examples/rltest
+	# <<< ./instrument.py $(OUT)/examples/fgets
+	# <<< ./instrument.py $(OUT)/examples/input
+	./instrument.py python
+	# <<< ./instrument.py cat
+	# <<< ./instrument.py examples/input
+	# <<< ./instrument.py examples/read-stdin
 
 .PHONY: clean
 clean:

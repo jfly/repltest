@@ -1,2 +1,6 @@
+# Nix
 /.direnv
-/out
+/result
+
+# Python
+__pycache__/

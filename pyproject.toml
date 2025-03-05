@@ -1,0 +1,27 @@
+[project]
+name = "repl-driver"
+version = "0.1.0"
+description = "Python library for driving REPLs. Sort of like `pexpect`, but without the waiting or regexes."
+readme = "README.md"
+requires-python = ">= 3.12"
+dependencies = [
+    "python-ptrace >= 0.9.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest >= 8.3.5",
+    "pytest-cov >= 6.0.0",
+]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.pytest.ini_options]
+addopts = [
+    # https://docs.pytest.org/en/stable/explanation/goodpractices.html#which-import-mode
+    "--import-mode=importlib",
+]
+filterwarnings = [
+    "error",
+]
