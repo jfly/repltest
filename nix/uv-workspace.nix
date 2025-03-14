@@ -2,7 +2,7 @@
 
 {
   perSystem =
-    { pkgs, ... }:
+    { prj-fixtures, pkgs, ... }:
     let
       workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
         workspaceRoot = builtins.toString (
@@ -16,6 +16,8 @@
           }
         );
       };
+
+      hacks = pkgs.callPackage inputs.pyproject-nix.build.hacks { };
 
       pyprojectOverrides = final: prev: {
         repl-driver = prev.repl-driver.overrideAttrs (old: {
@@ -37,7 +39,8 @@
                   inherit (final.repl-driver) src;
                   nativeBuildInputs = [
                     virtualenv
-                  ];
+                  ] ++ prj-fixtures;
+
                   dontConfigure = true;
 
                   buildPhase = ''
@@ -52,34 +55,29 @@
                     runHook postInstall
                   '';
                 };
-
               };
           };
         });
 
-        python-ptrace =
-          (prev.python-ptrace.override {
-            sourcePreference = "sdist";
-          }).overrideAttrs
-            (old: {
-              nativeBuildInputs = old.nativeBuildInputs ++ [
-                (final.resolveBuildSystem {
-                  setuptools = [ ];
-                })
-              ];
-              patches = (old.patches or [ ]) ++ [
-                # https://github.com/vstinner/python-ptrace/pull/90
-                (pkgs.fetchpatch {
-                  url = "https://github.com/vstinner/python-ptrace/pull/90/commits/5dac4505fa7500dba38d365503cee487a0b0a11a.patch";
-                  hash = "sha256-+LGcts6GeYcAjSaqtToGMhqj+ZbsjdaxPTXGMbEBPIc=";
-                })
-              ];
+        # Here we do some hackiness to pull in the `seccomp` Python library,
+        # which is not distributed on `pypi.org`. It is available in `nixpkgs`,
+        # though. For more information:
+        #  - https://github.com/seccomp/libseccomp/issues/461
+        #  - https://github.com/pyproject-nix/pyproject.nix/issues/267
+        seccomp = hacks.nixpkgsPrebuilt {
+          from = python.pkgs.seccomp.override {
+            libseccomp = pkgs.libseccomp.overrideAttrs (oldAttrs: {
+              # TODO: upstream this to libseccomp.
+              patches = (oldAttrs.patches or [ ]) ++ [ ./seccomp-add-set_notify_fd.patch ];
             });
+          };
+        };
       };
+
       overlay = workspace.mkPyprojectOverlay {
         sourcePreference = "wheel";
       };
-      python = pkgs.python3;
+      python = pkgs.python313;
       pythonSet =
         (pkgs.callPackage inputs.pyproject-nix.build.packages {
           inherit python;

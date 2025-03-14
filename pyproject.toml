@@ -3,15 +3,21 @@ name = "repl-driver"
 version = "0.1.0"
 description = "Python library for driving REPLs. Sort of like `pexpect`, but without the waiting or regexes."
 readme = "README.md"
-requires-python = ">= 3.12"
+requires-python = ">=3.12"
 dependencies = [
-    "python-ptrace >= 0.9.9",
+    "pyte>=0.8.2",
+    "python-ptrace>=0.9.9",
+    # TODO: add this. See:
+    # - https://github.com/seccomp/libseccomp/issues/461
+    # - https://github.com/pyproject-nix/pyproject.nix/issues/267 for an idea for
+    #   how to do it with `UV_FIND_LINKS`.
+    # "seccomp",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest >= 8.3.5",
-    "pytest-cov >= 6.0.0",
+    "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
 ]
 
 [tool.ruff.lint]

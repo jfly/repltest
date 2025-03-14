@@ -1,0 +1,118 @@
+commit c294d055ef89490db1ce46a36fa7b7a0e230b32c
+Author: Jeremy Fleischman <jeremyfleischman@gmail.com>
+Date:   Mon Mar 3 13:59:59 2025 -0800
+
+    --wip-- [skip ci]
+
+diff --git a/include/seccomp.h.in b/include/seccomp.h.in
+index 38c50d2..05e79c6 100644
+--- a/include/seccomp.h.in
++++ b/include/seccomp.h.in
+@@ -814,6 +814,11 @@ int seccomp_notify_id_valid(int fd, uint64_t id);
+  */
+ int seccomp_notify_fd(const scmp_filter_ctx ctx);
+ 
++/**
++ * TODO: explain
++ */
++void seccomp_set_notify_fd(int fd);
++
+ /**
+  * Generate seccomp Pseudo Filter Code (PFC) and export it to a file
+  * @param ctx the filter context
+diff --git a/src/api.c b/src/api.c
+index adccef3..65136bc 100644
+--- a/src/api.c
++++ b/src/api.c
+@@ -728,6 +728,12 @@ API int seccomp_notify_fd(const scmp_filter_ctx ctx)
+ 	return _rc_filter(sys_notify_fd());
+ }
+ 
++/* NOTE - function header comment in include/seccomp.h */
++API void seccomp_set_notify_fd(int fd)
++{
++	set_sys_notify_fd(fd);
++}
++
+ /* NOTE - function header comment in include/seccomp.h */
+ API int seccomp_export_pfc(const scmp_filter_ctx ctx, int fd)
+ {
+diff --git a/src/python/libseccomp.pxd b/src/python/libseccomp.pxd
+index f278488..cf39c5f 100644
+--- a/src/python/libseccomp.pxd
++++ b/src/python/libseccomp.pxd
+@@ -167,6 +167,7 @@ cdef extern from "seccomp.h":
+     int seccomp_notify_respond(int fd, seccomp_notif_resp *resp)
+     int seccomp_notify_id_valid(int fd, uint64_t id)
+     int seccomp_notify_fd(scmp_filter_ctx ctx)
++    void seccomp_set_notify_fd(int fd)
+ 
+     int seccomp_export_pfc(scmp_filter_ctx ctx, int fd)
+     int seccomp_export_bpf(scmp_filter_ctx ctx, int fd)
+diff --git a/src/python/seccomp.pyx b/src/python/seccomp.pyx
+index 7e03dc0..d9a2b73 100644
+--- a/src/python/seccomp.pyx
++++ b/src/python/seccomp.pyx
+@@ -1026,6 +1026,31 @@ cdef class SyscallFilter:
+             raise RuntimeError("Notifications not enabled/active")
+         return fd
+ 
++    def set_notify_fd(self, fd):
++        """ HACK
++
++        From https://brauner.io/2020/07/23/seccomp-notify.html:
++
++        > Of course, the seccomp notify fd is not very useful to the task
++        > itself. First, since it doesn’t make a lot of sense apart from very
++        > weird use-cases for a task to listen for its own syscalls. Second,
++        > because the task would likely block itself indefinitely pretty quickly
++        > without taking extreme care.
++
++        > But what the task can do with the seccomp notifier is to hand to another task.
++        > Usually the task that it will hand the seccomp notify fd to will be more
++        > privileged than itself. For a container the most obvious candidate would be the
++        > container manager of course.
++
++        Also see some example code:
++
++        - https://github.com/torvalds/linux/blob/v6.13/samples/seccomp/user-trap.c
++        - https://man7.org/tlpi/code/online/dist/seccomp/seccomp_user_notification.c.html
++        - https://terenceli.github.io/%E6%8A%80%E6%9C%AF/2021/05/20/seccomp-user-notify
++
++        """
++        libseccomp.seccomp_set_notify_fd(fd)
++
+     def export_pfc(self, file):
+         """ Export the filter in PFC format.
+ 
+diff --git a/src/system.c b/src/system.c
+index f270952..4c5d1ab 100644
+--- a/src/system.c
++++ b/src/system.c
+@@ -459,6 +459,14 @@ int sys_notify_fd(void)
+ 	return state.notify_fd;
+ }
+ 
++/**
++ * TODO: explain
++ */
++void set_sys_notify_fd(int fd)
++{
++	state.notify_fd = fd;
++}
++
+ /**
+  * Allocate a pair of notification request/response structures
+  * @param req the request location
+diff --git a/src/system.h b/src/system.h
+index 7918c1f..ed53298 100644
+--- a/src/system.h
++++ b/src/system.h
+@@ -210,6 +210,7 @@ void sys_set_seccomp_flag(int flag, bool enable);
+ int sys_filter_load(struct db_filter_col *col, bool rawrc);
+ 
+ int sys_notify_fd(void);
++void set_sys_notify_fd(int);
+ int sys_notify_alloc(struct seccomp_notif **req,
+ 		     struct seccomp_notif_resp **resp);
+ int sys_notify_receive(int fd, struct seccomp_notif *req);

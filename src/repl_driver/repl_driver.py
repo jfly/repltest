@@ -1,206 +1,44 @@
+import datetime as dt
+import enum
+import errno
+import logging
 import os
+import pty
 import selectors
-import threading
+import signal
+import socket
+import termios
 import time
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
-from ptrace.binding import ptrace_traceme
-from ptrace.debugger import (
-    NewProcessEvent,
-    ProcessExit,
-    ProcessSignal,
-    PtraceDebugger,
-    PtraceProcess,
-)
-from ptrace.debugger.process import SyscallState
-from ptrace.func_call import FunctionCallOptions
-from ptrace.syscall import PtraceSyscall, SyscallArgument
-from ptrace.syscall.linux_constants import FD_SETSIZE
-from ptrace.tools import signal_to_exitcode
+import seccomp
 
-DEBUG = True  # <<<
+from . import analyze_syscall
+from .exceptions import ReplTimeoutException
 
-# TODO: what happens if someone tries to use this under ptrace?
+logger = logging.getLogger(__name__)
 
 
-def is_tty(fd: int):
-    # TODO: handle scenario where stdin is not a TTY
-    return fd == 0
+def get_special_char_vals(tty: int) -> set[int]:
+    _iflag, _oflag, _cflag, _lflag, _ispeed, _ospeed, cc = termios.tcgetattr(tty)
+    return set(ord(c) for c in cc)
 
 
-class ReadWatcher(threading.Thread):
-    def __init__(self, args: list[str]):
-        super().__init__(daemon=True)
+def is_echo_enabled(tty: int) -> bool:
+    _iflag, _oflag, _cflag, lflag, _ispeed, _ospeed, _cc = termios.tcgetattr(tty)
+    return lflag & termios.ECHO != 0
 
-        self._syscall_dispatch = {
-            "read": self.handle_read,
-            "pselect6": self.handle_pselect6,
-        }
 
-        self._manager_fd_cv = threading.Condition()
-        self._manager_fd = None
-        self._args = args
-        self.newlines_read = 0
-        self.input_wanted_newlines_read = -1
+# TODO: contribute upstream to `libseccomp`?
+# From `tools/include/uapi/linux/seccomp.h`
+SECCOMP_USER_NOTIF_FLAG_CONTINUE = 1 << 0
 
-    def handle_syscall(self, syscall: PtraceSyscall):
-        if syscall.name in self._syscall_dispatch:
-            self._syscall_dispatch[syscall.name](syscall)
 
-    def handle_pselect6(self, syscall: PtraceSyscall):
-        """
-        Some processes wait to see that `stdin` is readable before blocking
-        trying to `read()` from it. For example, Python uses `pselect6` [0]
-        (which `glibc` seems to turn into `pselect6`) to do this.
-
-        [0]: https://github.com/python/cpython/blob/v3.13.2/Modules/readline.c#L1416-L1417
-        """
-        assert syscall.name == "pselect6"
-        nfds_arg: SyscallArgument = syscall.arguments[0]
-        fd_set_arg: SyscallArgument = syscall.arguments[1]
-        nfds = cast(int, nfds_arg.value)
-
-        # Ignore the end of a select, we're only interested in the start
-        # of one (to check if the process is trying to read from stdin).
-        if syscall.result is not None:
-            return
-
-        fd_set: set[int] = set(
-            x
-            for x in fd_set_arg.readBits(
-                fd_set_arg.value,
-                FD_SETSIZE,
-                format=lambda x: x,  # type: ignore
-            )
-            if int(x) < nfds
-        )
-        for fd in fd_set:
-            if is_tty(fd):
-                self.input_wanted_newlines_read = self.newlines_read
-
-    def handle_read(self, syscall: PtraceSyscall):
-        assert syscall.name == "read"
-        fd_arg: SyscallArgument = syscall.arguments[0]
-        buf_arg: SyscallArgument = syscall.arguments[1]
-
-        assert fd_arg.value is not None
-        fd: int = fd_arg.value
-
-        if not is_tty(fd):
-            return
-
-        if syscall.result is None:
-            self.input_wanted_newlines_read = self.newlines_read
-        else:
-            bytes_read = syscall.result
-            buf_contents: bytes = syscall.process.readBytes(buf_arg.value, bytes_read)
-            for ch in buf_contents:
-                if ch in [
-                    ord("\n"),
-                    ord("\r"),  # TODO: understand the deal with \n vs \r here.
-                ]:
-                    self.newlines_read += 1
-
-    def display_syscall(self, syscall: PtraceSyscall):
-        text = syscall.format()
-        if syscall.result is not None:
-            text = "%-40s = %s" % (text, syscall.result_text)
-        prefix = []
-        prefix.append("[%0.2f]" % time.time())
-        prefix.append("[%s]" % syscall.process.pid)
-        if prefix:
-            text = "".join(prefix) + " " + text
-        print(text)
-
-    def syscall(self, process: PtraceProcess):
-        state: SyscallState = process.syscall_state
-
-        syscall_options = FunctionCallOptions()
-
-        syscall = state.event(syscall_options)
-        if syscall is not None:
-            if DEBUG and syscall.result is None:
-                self.display_syscall(syscall)
-
-            # <<< self.handle_syscall(syscall)
-
-            if DEBUG and syscall.result is not None:
-                self.display_syscall(syscall)
-
-        # Break at next syscall
-        process.syscall()
-
-    def ignore_syscall(self, syscall: PtraceSyscall):
-        return False  # <<<
-        # <<< return syscall.name not in self._syscall_dispatch.keys()
-
-    def get_manager_fd(self) -> int:
-        """
-        Get the manager end of the psuedoterminal allocated for this process.
-
-        If one has not been created yet, will block until it has.
-        """
-        assert self.is_alive()
-
-        with self._manager_fd_cv:
-            self._manager_fd_cv.wait_for(lambda: self._manager_fd is not None)
-
-            fd = self._manager_fd
-            assert fd is not None
-            return fd
-
-    def run(self):
-        # <<< pid, fd = pty.fork()
-        pid = os.fork()  # <<<
-
-        if pid == 0:
-            ptrace_traceme()
-            os.execvp(self._args[0], self._args)
-        else:
-            with self._manager_fd_cv:
-                # <<< self._manager_fd = fd
-                self._manager_fd = "BOGUS"  # <<<
-                self._manager_fd_cv.notify()
-
-        debugger = PtraceDebugger()
-        debugger.traceFork()
-
-        process = debugger.addProcess(pid, is_attached=True)
-        process.syscall_state.ignore_callback = self.ignore_syscall  # type: ignore # urg
-
-        process.syscall()
-
-        exitcode = 0
-        while True:
-            # If there are no more child/descendant processes, exit.
-            if len(debugger.list) == 0:
-                break
-
-            # Wait until the next syscall.
-            try:
-                event = debugger.waitSyscall()
-            except ProcessExit as event:
-                if event.exitcode is not None:
-                    exitcode = event.exitcode
-                continue
-            except ProcessSignal as event:
-                event.process.syscall(event.signum)
-                exitcode = signal_to_exitcode(event.signum)
-                continue
-            except NewProcessEvent as event:
-                process = event.process
-                process.syscall_state.ignore_callback = self.ignore_syscall  # type: ignore # urg
-                process.syscall()
-                assert process.parent is not None
-                process.parent.syscall()
-                continue
-
-            # Process syscall enter or exit
-            assert event is not None
-            self.syscall(event.process)
-
-        self.exitcode = exitcode
-        debugger.quit()
+class State(enum.Enum):
+    AWAITING_STDIN_READ = enum.auto()
+    SENT_INPUT_AWAITING_CRLF = enum.auto()
+    INPUT_ECHOED_NOW_AWAITING_OUTPUT = enum.auto()
+    DONE = enum.auto()
 
 
 class ReplDriver:
@@ -209,55 +47,324 @@ class ReplDriver:
         args: list[str],
         input_callback: Callable[[], bytes],
         on_output: Callable[[bytes], Any],
+        timeout: dt.timedelta | None = None,
     ):
         super().__init__()
         self._input_callback = input_callback
         self._on_output = on_output
         self._args = args
+        self._timeout = timeout
 
-    def spawn(self):
-        watcher = ReadWatcher(self._args)
-        watcher.start()
+        parent_socket, child_socket = socket.socketpair()
+        pid, manager_fd = pty.fork()
 
-        manager_fd = watcher.get_manager_fd()
+        if pid == 0:
+            parent_socket.close()
+            with child_socket:
+                f = seccomp.SyscallFilter(seccomp.ALLOW)
+                for syscall in analyze_syscall.SYSCALLS_THAT_COULD_INDICATE_WANTS_STDIN:
+                    f.add_rule(seccomp.NOTIFY, syscall.name)
+                f.load()
 
-        newlines_sent = 0
+                notify_fd = f.get_notify_fd()
+                socket.send_fds(
+                    child_socket,
+                    [b"notify_fd, subsidiary_fd"],
+                    [notify_fd, pty.STDIN_FILENO],
+                )
 
-        sel = selectors.DefaultSelector()
-        # <<< os.set_blocking(manager_fd, False)
-        # <<< sel.register(manager_fd, selectors.EVENT_READ)
+            os.execvp(self._args[0], self._args)
+        else:
+            child_socket.close()
+            with parent_socket:
+                msg, fds, _flags, _addr = socket.recv_fds(parent_socket, 1024, 2)
 
+            assert msg == b"notify_fd, subsidiary_fd", f"Unexpected message: {msg}"
+
+            self._notify_fd, self._subsidiary_fd = fds
+            self._child_pid = pid
+            self._manager_fd = manager_fd
+
+            self._syscall_filter = seccomp.SyscallFilter(seccomp.ALLOW)
+            self._syscall_filter.set_notify_fd(self._notify_fd)
+
+            # Python's `signal.set_wakeup_fd` doesn't seem to work unless you've
+            # actually installed a handler for the relevant signal. This doesn't seem to be documented anywhere :(.
+            # The pattern in the wild seems to be to install a dummy handler, e.g.:
+            # https://github.com/kovidgoyal/vise/blob/451bc7ecd991f56c9924fd40495f0d9e4b5bb1d5/vise/main.py#L162-L163
+            # TODO: file an issue with CPython, perhaps we can at least improve the docs?
+            og_sigchild_handler = signal.signal(
+                signal.SIGCHLD, lambda signum, frame: None
+            )
+
+            self._signal_socket_r, signal_socket_w = socket.socketpair()
+            signal_socket_w.setblocking(False)
+            og_fd = signal.set_wakeup_fd(signal_socket_w.fileno())
+
+            try:
+                with self._signal_socket_r, signal_socket_w:
+                    self._loop()
+            finally:
+                signal.set_wakeup_fd(og_fd)
+                signal.signal(signal.SIGCHLD, og_sigchild_handler)
+
+                self._syscall_filter.reset()
+                # `libseccomp::seccomp_reset` only resets global state if `ctx == NULL`: https://github.com/seccomp/libseccomp/blob/v2.6.0/src/api.c#L337
+                # `SyscallFilter::reset` always passes a non-null `ctx`: https://github.com/seccomp/libseccomp/blob/v2.6.0/src/python/seccomp.pyx#L640
+                # TODO: file an issue with `libseccomp` asking about how to clean up.
+                # TODO: file an issue with `libseccomp` asking to make it impossible
+                #       to create two `SyscallFilter`s in parallel (at least, I'm
+                #       pretty sure that's a bad idea).
+                os.close(self._notify_fd)
+                self._syscall_filter.set_notify_fd(-1)
+                del self._notify_fd
+
+                os.close(self._manager_fd)
+                del self._manager_fd
+                os.close(self._subsidiary_fd)
+                del self._subsidiary_fd
+
+    def _handle_child_wants_stdin(self):
+        logger.debug("%s: Child wants stdin", self._state.name)
+        self._drain_manager_reads()
+
+        to_write = self._input_callback()
+        assert len(to_write) > 0, "Input must be longer than 0 bytes"
+
+        special_char_vals = get_special_char_vals(self._manager_fd)
+        has_special_chars = len(special_char_vals & set(to_write)) > 0
+        if has_special_chars:
+            if len(to_write) != 1:
+                assert False, (
+                    "We currently only support sending exactly 1 special character at a time. "
+                )
+        else:
+            assert not has_special_chars
+            assert to_write.endswith(b"\n"), (
+                "Input without special chars must end in a newline"
+            )
+
+        assert is_echo_enabled(self._manager_fd), "TTY must have ECHO enabled"
+
+        os.write(self._manager_fd, to_write)
+        logger.debug("%s: Just wrote %s", self._state.name, to_write)
+
+        self._state = State.SENT_INPUT_AWAITING_CRLF
+
+    def _kick_foreground_process(self):
+        """
+        If the the foreground process (the process attached to the TTY)
+        is stuck in a blocking syscall, break it out of that syscall.
+
+        We need to do this in case we ignored a `read()` from a child
+        process while we were sending it input. See "Ignoring child syscall"
+        in `_handle_notify` for details.
+        """
+        fg_pid = os.tcgetpgrp(self._manager_fd)
+        logger.debug("%s: Kicking %s", self._state.name, fg_pid)
+        os.kill(fg_pid, signal.SIGSTOP)
+        os.kill(fg_pid, signal.SIGCONT)
+        logger.debug("%s: Kicked %s", self._state.name, fg_pid)
+
+    def _drain_manager_reads(self):
+        """
+        NOTE: This operation may block.
+
+        Fully drain reads on the manager side of the PTY
+        (i.e.: read everything children have read to it).
+
+        There doesn't seem to be any portable way of doing this,
+        so we hack it: write a NULL byte into the subsidiary side
+        of the PTY, and wait for it to show up on the manager side.
+
+        Hopefully nobody is legitimately writing NULL bytes...
+        """
+        logger.debug("%s: Draining manager reads", self._state.name)
+
+        null_byte = b"\x00"
+        os.write(self._subsidiary_fd, null_byte)
+
+        output = b""
         while True:
-            # <<< print("about to call select...", end="")  # <<<
-            events = sel.select(timeout=0.1)
-            # <<< print(f" done: {len(events)}")  # <<<
+            output = os.read(self._manager_fd, 1024)
 
-            if not watcher.is_alive():
-                break
+            drained = False
+            if null_byte in output:
+                output = output.replace(null_byte, b"")
+                drained = True
 
-            for key, _mask in events:
-                assert key.fd == manager_fd
-                try:
-                    output = os.read(key.fd, 1024)
-                except OSError:
-                    # This happens at EOF.
-                    break
-
+            if len(output) > 0:
+                logger.debug("%s: Just read %s", self._state.name, output)
                 self._on_output(output)
 
-            child_has_read_everything = newlines_sent == watcher.newlines_read
-            child_wants_input = (
-                watcher.newlines_read == watcher.input_wanted_newlines_read
-            )
-            # <<< print(f"{child_has_read_everything=} {child_wants_input=}")  # <<<
-            if child_has_read_everything and child_wants_input:
-                to_write = self._input_callback()
-                newlines_sent += to_write.count(b"\n")
-                assert to_write.endswith(b"\n")
-                print(f"Driver writing {to_write} to {manager_fd}")  # <<<
-                os.write(manager_fd, to_write)
-                # <<< import termios  # <<<
-                # <<<
-                # <<< termios.tcdrain(manager_fd)  # <<<
+            if drained:
+                logger.debug("%s: Drained manager reads", self._state.name)
+                break
 
-        return watcher.exitcode
+    def _handle_manager_readable(self):
+        """
+        Called when the manager fd is readable (aka: when a
+        child process has written some output to the PTY).
+        """
+        output = os.read(self._manager_fd, 1024)
+
+        if len(output) == 0:
+            return
+
+        logger.debug("%s: Just read %s", self._state.name, output)
+        self._on_output(output)
+
+        if self._state == State.SENT_INPUT_AWAITING_CRLF:
+            if output.endswith(b"\r\n"):
+                self._state = State.INPUT_ECHOED_NOW_AWAITING_OUTPUT
+            elif b"\r\n" in output:
+                self._state = State.AWAITING_STDIN_READ
+                self._kick_foreground_process()
+        elif self._state == State.INPUT_ECHOED_NOW_AWAITING_OUTPUT:
+            self._state = State.AWAITING_STDIN_READ
+            self._kick_foreground_process()
+
+    def _handle_notify(self):
+        try:
+            notify = self._syscall_filter.receive_notify()
+        except RuntimeError as e:
+            if (
+                str(e) == f"Library error (errno = -{errno.ECANCELED})"
+                or str(e) == f"Library error (errno = -{errno.ENOENT})"
+            ):
+                # Happens if the notification is no longer valid (if the
+                # process was interrupted during its syscall).
+                # TODO: file an issue with `libseccomp` to see if there's a less
+                # stringly way of doing this.
+                logger.debug(
+                    "%s: Tried to receive a stale notify. Ignoring.", self._state.name
+                )
+                return
+
+            raise
+
+        child_wants_stdin = False
+        match self._state:
+            case State.AWAITING_STDIN_READ:
+                syscall = analyze_syscall.get_syscall_from_seccomp_notify(notify)
+                child_wants_stdin = syscall.indicates_desire_to_read_fd(
+                    self._subsidiary_fd
+                )
+            case (
+                State.SENT_INPUT_AWAITING_CRLF | State.INPUT_ECHOED_NOW_AWAITING_OUTPUT
+            ):
+                # We've just sent input to the child, but we haven't confirmed yet that the
+                # child has read that input. We ignore any syscalls the child makes until
+                # we've verified the child has processed our input.
+                logger.debug("%s: Ignoring child syscall", self._state.name)
+            case _:
+                assert False, f"Unrecognized state: {self._state}"
+
+        continue_response = seccomp.NotificationResponse(
+            notify,
+            val=0,
+            error=0,
+            flags=SECCOMP_USER_NOTIF_FLAG_CONTINUE,
+        )
+        try:
+            self._syscall_filter.respond_notify(continue_response)
+        except RuntimeError as e:
+            if (
+                str(e) == f"Library error (errno = -{errno.ECANCELED})"
+                or str(e) == f"Library error (errno = -{errno.ENOENT})"
+            ):
+                # Happens if the notification is no longer valid (if the
+                # process was interrupted during its syscall).
+                # TODO: file an issue with `libseccomp` to see if there's a less
+                # stringly way of doing this.
+                logger.debug(
+                    "%s: Tried to respond to a stale notify. Ignoring.",
+                    self._state.name,
+                )
+                return
+
+            raise
+
+        if child_wants_stdin:
+            self._handle_child_wants_stdin()
+
+    def _handle_signal(self):
+        # Just drain the socket, the contents don't really matter.
+        self._signal_socket_r.recv(1024)
+
+        logger.debug(
+            "%s: Checking if child %s has exited", self._state.name, self._child_pid
+        )
+        pid, waitstatus = os.waitpid(self._child_pid, os.WNOHANG)
+        if pid == 0:
+            logger.debug(
+                "%s: Child %s has not exited. Continuing.",
+                self._state.name,
+                self._child_pid,
+            )
+            return
+
+        self.returncode = os.waitstatus_to_exitcode(waitstatus)
+        logger.debug(
+            "%s: Child %s exited with code %s",
+            self._state.name,
+            self._child_pid,
+            self.returncode,
+        )
+
+        # Make sure we've read everything from the
+        # PTY before exiting.
+        self._drain_manager_reads()
+
+        self._state = State.DONE
+
+    def _loop(self):
+        sel = selectors.DefaultSelector()
+        sel.register(
+            self._manager_fd, selectors.EVENT_READ, data=self._handle_manager_readable
+        )
+        sel.register(self._notify_fd, selectors.EVENT_READ, data=self._handle_notify)
+        sel.register(
+            self._signal_socket_r, selectors.EVENT_READ, data=self._handle_signal
+        )
+
+        start_ts = time.monotonic()
+
+        self._state = State.AWAITING_STDIN_READ
+
+        while self._state != State.DONE:
+            if self._timeout is not None:
+                elapsed_seconds = time.monotonic() - start_ts
+                budget_seconds = self._timeout.total_seconds() - elapsed_seconds
+            else:
+                budget_seconds = None
+
+            events = sel.select(timeout=budget_seconds)
+
+            if self._timeout is not None:
+                elapsed_seconds = time.monotonic() - start_ts
+                if elapsed_seconds > self._timeout.total_seconds():
+                    raise ReplTimeoutException()
+
+            for key, _mask in events:
+                old_state = self._state
+
+                # Invoke the relevant handler.
+                key.data()
+
+                # If the state has changed, restart the `select` loop. Some of the handlers
+                # call functions like `_drain_manager_reads` which could make other handlers block
+                # (such as `_handle_manager_readable`, which assumes the manager fd is readable).
+                # Solution: these things only happen when the state changes. If the state changed,
+                # restart the loop. Any events will still be waiting for us there.
+                if old_state != self._state:
+                    logger.debug(
+                        "%s: State changed from %s to %s. Restarting loop",
+                        self._state.name,
+                        old_state,
+                        self._state,
+                    )
+                    break
+
+    def check_returncode(self):
+        assert self.returncode == 0, f"Process exited with returncode {self.returncode}"
