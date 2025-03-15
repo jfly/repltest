@@ -23,8 +23,5 @@
     {
       packages.test-repls = test-repls;
       devshells.default.packages = [ test-repls ];
-
-      # TODO <<< how to merge with `_module.args.prj`? >>>
-      _module.args.prj-test-repls = test-repls;
     };
 }

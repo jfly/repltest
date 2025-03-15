@@ -20,8 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_special_char_vals(tty: int) -> set[int]:
+    # From `help(termios.tcgetattr)`:
+    # > cc is a list of the tty special characters (each a string of
+    # > length 1, except the items with indices VMIN and VTIME, which are
+    # > integers when these fields are defined
+    cc: list[bytes | int]
     _iflag, _oflag, _cflag, _lflag, _ispeed, _ospeed, cc = termios.tcgetattr(tty)
-    return set(ord(c) for c in cc)
+    return set(ord(c) for c in cc if not isinstance(c, int))
 
 
 def is_echo_enabled(tty: int) -> bool:
@@ -37,7 +42,7 @@ SECCOMP_USER_NOTIF_FLAG_CONTINUE = 1 << 0
 class State(enum.Enum):
     AWAITING_STDIN_READ = enum.auto()
     SENT_INPUT_AWAITING_CRLF = enum.auto()
-    INPUT_ECHOED_NOW_AWAITING_OUTPUT = enum.auto()
+    SENT_INPUT_AWAITING_OUTPUT = enum.auto()
     DONE = enum.auto()
 
 
@@ -144,12 +149,13 @@ class ReplDriver:
                 "Input without special chars must end in a newline"
             )
 
-        assert is_echo_enabled(self._manager_fd), "TTY must have ECHO enabled"
-
         os.write(self._manager_fd, to_write)
         logger.debug("%s: Just wrote %s", self._state.name, to_write)
 
-        self._state = State.SENT_INPUT_AWAITING_CRLF
+        if is_echo_enabled(self._manager_fd):
+            self._state = State.SENT_INPUT_AWAITING_CRLF
+        else:
+            self._state = State.SENT_INPUT_AWAITING_OUTPUT
 
     def _kick_foreground_process(self):
         """
@@ -216,11 +222,11 @@ class ReplDriver:
 
         if self._state == State.SENT_INPUT_AWAITING_CRLF:
             if output.endswith(b"\r\n"):
-                self._state = State.INPUT_ECHOED_NOW_AWAITING_OUTPUT
+                self._state = State.SENT_INPUT_AWAITING_OUTPUT
             elif b"\r\n" in output:
                 self._state = State.AWAITING_STDIN_READ
                 self._kick_foreground_process()
-        elif self._state == State.INPUT_ECHOED_NOW_AWAITING_OUTPUT:
+        elif self._state == State.SENT_INPUT_AWAITING_OUTPUT:
             self._state = State.AWAITING_STDIN_READ
             self._kick_foreground_process()
 
@@ -250,9 +256,7 @@ class ReplDriver:
                 child_wants_stdin = syscall.indicates_desire_to_read_fd(
                     self._subsidiary_fd
                 )
-            case (
-                State.SENT_INPUT_AWAITING_CRLF | State.INPUT_ECHOED_NOW_AWAITING_OUTPUT
-            ):
+            case State.SENT_INPUT_AWAITING_CRLF | State.SENT_INPUT_AWAITING_OUTPUT:
                 # We've just sent input to the child, but we haven't confirmed yet that the
                 # child has read that input. We ignore any syscalls the child makes until
                 # we've verified the child has processed our input.

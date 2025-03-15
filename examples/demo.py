@@ -26,8 +26,7 @@ def on_output(out: bytes):
 
 
 driver = ReplDriver(
-    # <<< args=["python"],
-    args=["test-repl-read-cooked"],
+    args=["python"],
     on_output=on_output,
     input_callback=lambda: inputs.pop(0).encode(),
 )

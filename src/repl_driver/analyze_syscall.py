@@ -23,8 +23,21 @@ class PollFd(ctypes.Structure):
     ]
 
 
-class ReadSyscall:
+class Syscall:
+    name: str
+    could_indicate_desire_to_read_fd: bool
+
+    def indicates_desire_to_read_fd(self, fd: int) -> bool:
+        raise NotImplementedError()
+
+    @classmethod
+    def parse_seccomp(cls, notify: seccomp.Notification) -> Self:
+        raise NotImplementedError()
+
+
+class ReadSyscall(Syscall):
     name = "read"
+    could_indicate_desire_to_read_fd = True
 
     def __init__(self, pid: int, fd: int, buf_pointer: int, count: int):
         self.pid = pid
@@ -44,8 +57,9 @@ class ReadSyscall:
         return _is_same_fd(my_pid, my_fd, self.pid, self.fd)
 
 
-class PollSyscall:
+class PollSyscall(Syscall):
     name = "poll"
+    could_indicate_desire_to_read_fd = True
 
     def __init__(self, pid: int, fds_pointer: int, nfds: int, timeout: int):
         self.pid = pid
@@ -56,7 +70,6 @@ class PollSyscall:
     @classmethod
     def parse_seccomp(cls, notify: seccomp.Notification) -> Self:
         fds_pointer, nfds, timeout, *_ = notify.syscall_args
-        breakpoint()  # <<<
         return cls(pid=notify.pid, fds_pointer=fds_pointer, nfds=nfds, timeout=timeout)
 
     def indicates_desire_to_read_fd(self, fd: int) -> bool:
@@ -83,13 +96,10 @@ class PollSyscall:
         return False
 
 
-Syscall = ReadSyscall | PollSyscall
+SYSCALL_CLASSES = Syscall.__subclasses__()
 
-SYSCALL_CLASSES = [ReadSyscall, PollSyscall]  # <<<
-
-SYSCALLS_THAT_COULD_INDICATE_WANTS_STDIN: list[type[Syscall]] = [
-    ReadSyscall,
-    PollSyscall,
+SYSCALLS_THAT_COULD_INDICATE_WANTS_STDIN = [
+    cls for cls in SYSCALL_CLASSES if cls.could_indicate_desire_to_read_fd
 ]
 
 
@@ -119,7 +129,7 @@ SYSCALLS_THAT_COULD_INDICATE_WANTS_STDIN: list[type[Syscall]] = [
 
 
 def get_syscall_from_seccomp_notify(notify: seccomp.Notification) -> Syscall:
-    syscall_class_by_id: dict[int, Syscall] = {
+    syscall_class_by_id: dict[int, type[Syscall]] = {
         seccomp.resolve_syscall(seccomp.Arch(), syscall.name): syscall
         for syscall in SYSCALL_CLASSES
     }
