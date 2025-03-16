@@ -118,21 +118,12 @@ wheels = [
 ]
 
 [[package]]
-name = "python-ptrace"
-version = "0.9.9"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a5/8f/9700154c92854687c78380a5fa226233d89b2631c74e420b25c93ebc6d95/python-ptrace-0.9.9.tar.gz", hash = "sha256:56bbfef44eaf3a77be48138cca5767cdf471e8278fe1499f9b72f151907f25cf", size = 108964 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3e/33/0865143ddf633d27881296e77bd66b24df5faa9d744267c1d29aeb902a07/python_ptrace-0.9.9-py2.py3-none-any.whl", hash = "sha256:8c97d23d55e551e7d7c5b104b87635fdd27d6c188c9cc205e8d0f6d71272b712", size = 104763 },
-]
-
-[[package]]
 name = "repl-driver"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "pyte" },
-    { name = "python-ptrace" },
+    { name = "seccomp" },
 ]
 
 [package.dev-dependencies]
@@ -144,13 +135,21 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "pyte", specifier = ">=0.8.2" },
-    { name = "python-ptrace", specifier = ">=0.9.9" },
+    { name = "seccomp", specifier = ">=2.6.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
+]
+
+[[package]]
+name = "seccomp"
+version = "2.6.0"
+source = { registry = ".uv-find-links" }
+wheels = [
+    { path = "seccomp-2.6.0-cp313-cp313-linux_x86_64.whl" },
 ]
 
 [[package]]

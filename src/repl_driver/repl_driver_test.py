@@ -48,7 +48,7 @@ class TestReplDriver:
 
         def on_output(output: bytes):
             if len(events) > 0 and events[-1].startswith(b">> "):
-                events[-1] += output
+                events[-1] += output  # pragma: no cover # doesn't always happen
             else:
                 events.append(b">> " + output)
 
@@ -73,12 +73,12 @@ class TestReplDriver:
             b">> Bye!\r\n",
         ]
 
-    def test_multiline(self):
+    def test_multiline(self, multiline_repl: str):
         pass  # <<< TODO >>>
 
     def test_timeout(self):
         def assert_not_called(*_args, **_kwargs):
-            assert False
+            assert False  # pragma: no cover
 
         with pytest.raises(ReplTimeoutException):
             ReplDriver(

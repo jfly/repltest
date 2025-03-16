@@ -59,11 +59,12 @@ class ReplDriver:
         self._on_output = on_output
         self._args = args
         self._timeout = timeout
+        self._state = State.AWAITING_STDIN_READ
 
         parent_socket, child_socket = socket.socketpair()
         pid, manager_fd = pty.fork()
 
-        if pid == 0:
+        if pid == 0:  # pragma: no cover # coverage can't detect forked children
             parent_socket.close()
             with child_socket:
                 f = seccomp.SyscallFilter(seccomp.ALLOW)
@@ -139,10 +140,9 @@ class ReplDriver:
         special_char_vals = get_special_char_vals(self._manager_fd)
         has_special_chars = len(special_char_vals & set(to_write)) > 0
         if has_special_chars:
-            if len(to_write) != 1:
-                assert False, (
-                    "We currently only support sending exactly 1 special character at a time. "
-                )
+            assert len(to_write) == 1, (
+                "We currently only support sending exactly 1 special character at a time. "
+            )
         else:
             assert not has_special_chars
             assert to_write.endswith(b"\n"), (
@@ -153,9 +153,9 @@ class ReplDriver:
         logger.debug("%s: Just wrote %s", self._state.name, to_write)
 
         if is_echo_enabled(self._manager_fd):
-            self._state = State.SENT_INPUT_AWAITING_CRLF
+            self._set_state(State.SENT_INPUT_AWAITING_CRLF)
         else:
-            self._state = State.SENT_INPUT_AWAITING_OUTPUT
+            self._set_state(State.SENT_INPUT_AWAITING_OUTPUT)
 
     def _kick_foreground_process(self):
         """
@@ -214,20 +214,19 @@ class ReplDriver:
         """
         output = os.read(self._manager_fd, 1024)
 
-        if len(output) == 0:
-            return
+        assert len(output) > 0
 
         logger.debug("%s: Just read %s", self._state.name, output)
         self._on_output(output)
 
         if self._state == State.SENT_INPUT_AWAITING_CRLF:
             if output.endswith(b"\r\n"):
-                self._state = State.SENT_INPUT_AWAITING_OUTPUT
+                self._set_state(State.SENT_INPUT_AWAITING_OUTPUT)
             elif b"\r\n" in output:
-                self._state = State.AWAITING_STDIN_READ
+                self._set_state(State.AWAITING_STDIN_READ)
                 self._kick_foreground_process()
         elif self._state == State.SENT_INPUT_AWAITING_OUTPUT:
-            self._state = State.AWAITING_STDIN_READ
+            self._set_state(State.AWAITING_STDIN_READ)
             self._kick_foreground_process()
 
     def _handle_notify(self):
@@ -247,7 +246,7 @@ class ReplDriver:
                 )
                 return
 
-            raise
+            raise  # pragma: no cover
 
         child_wants_stdin = False
         match self._state:
@@ -256,12 +255,16 @@ class ReplDriver:
                 child_wants_stdin = syscall.indicates_desire_to_read_fd(
                     self._subsidiary_fd
                 )
-            case State.SENT_INPUT_AWAITING_CRLF | State.SENT_INPUT_AWAITING_OUTPUT:
+            case (
+                State.SENT_INPUT_AWAITING_CRLF | State.SENT_INPUT_AWAITING_OUTPUT
+            ):  # pragma: no cover # Doesn't happen every time.
                 # We've just sent input to the child, but we haven't confirmed yet that the
                 # child has read that input. We ignore any syscalls the child makes until
                 # we've verified the child has processed our input.
+                # Note: this could cause the child to get blocked (perhaps in a `read()`).
+                # See `_kick_foreground_process` for how we handle that situation
                 logger.debug("%s: Ignoring child syscall", self._state.name)
-            case _:
+            case _:  # pragma: no cover
                 assert False, f"Unrecognized state: {self._state}"
 
         continue_response = seccomp.NotificationResponse(
@@ -272,7 +275,7 @@ class ReplDriver:
         )
         try:
             self._syscall_filter.respond_notify(continue_response)
-        except RuntimeError as e:
+        except RuntimeError as e:  # pragma: no cover
             if (
                 str(e) == f"Library error (errno = -{errno.ECANCELED})"
                 or str(e) == f"Library error (errno = -{errno.ENOENT})"
@@ -300,7 +303,7 @@ class ReplDriver:
             "%s: Checking if child %s has exited", self._state.name, self._child_pid
         )
         pid, waitstatus = os.waitpid(self._child_pid, os.WNOHANG)
-        if pid == 0:
+        if pid == 0:  # pragma: no cover
             logger.debug(
                 "%s: Child %s has not exited. Continuing.",
                 self._state.name,
@@ -320,7 +323,11 @@ class ReplDriver:
         # PTY before exiting.
         self._drain_manager_reads()
 
-        self._state = State.DONE
+        self._set_state(State.DONE)
+
+    def _set_state(self, new_state: State):
+        logger.debug("%s: state changing to %s", self._state.name, new_state.name)
+        self._state = new_state
 
     def _loop(self):
         sel = selectors.DefaultSelector()
@@ -334,13 +341,11 @@ class ReplDriver:
 
         start_ts = time.monotonic()
 
-        self._state = State.AWAITING_STDIN_READ
-
         while self._state != State.DONE:
             if self._timeout is not None:
                 elapsed_seconds = time.monotonic() - start_ts
                 budget_seconds = self._timeout.total_seconds() - elapsed_seconds
-            else:
+            else:  # pragma: no cover # we always specify a timeout in tests
                 budget_seconds = None
 
             events = sel.select(timeout=budget_seconds)

@@ -2,7 +2,7 @@
 
 {
   perSystem =
-    { prj-fixtures, pkgs, ... }:
+    { prj-test-repls, pkgs, ... }:
     let
       workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
         workspaceRoot = builtins.toString (
@@ -17,8 +17,6 @@
         );
       };
 
-      hacks = pkgs.callPackage inputs.pyproject-nix.build.hacks { };
-
       pyprojectOverrides = final: prev: {
         repl-driver = prev.repl-driver.overrideAttrs (old: {
           # Add tests to `passthru`.
@@ -30,7 +28,6 @@
                 virtualenv = final.mkVirtualEnv "repl-driver-pytest-env" {
                   repl-driver = [ "dev" ];
                 };
-
               in
               (old.tests or { })
               // {
@@ -39,13 +36,14 @@
                   inherit (final.repl-driver) src;
                   nativeBuildInputs = [
                     virtualenv
-                  ] ++ prj-fixtures;
+                    prj-test-repls
+                  ];
 
                   dontConfigure = true;
 
                   buildPhase = ''
                     runHook preBuild
-                    pytest --cov tests --cov-report html src
+                    pytest
                     runHook postBuild
                   '';
 
@@ -59,19 +57,21 @@
           };
         });
 
-        # Here we do some hackiness to pull in the `seccomp` Python library,
-        # which is not distributed on `pypi.org`. It is available in `nixpkgs`,
-        # though. For more information:
-        #  - https://github.com/seccomp/libseccomp/issues/461
-        #  - https://github.com/pyproject-nix/pyproject.nix/issues/267
-        seccomp = hacks.nixpkgsPrebuilt {
-          from = python.pkgs.seccomp.override {
-            libseccomp = pkgs.libseccomp.overrideAttrs (oldAttrs: {
-              # TODO: upstream this to libseccomp.
-              patches = (oldAttrs.patches or [ ]) ++ [ ./seccomp-add-set_notify_fd.patch ];
-            });
-          };
-        };
+        seccomp = prev.seccomp.overrideAttrs (
+          old:
+          let
+            pySeccomp = python.pkgs.seccomp.override {
+              libseccomp = pkgs.libseccomp.overrideAttrs (oldAttrs: {
+                # TODO: upstream this to libseccomp.
+                patches = (oldAttrs.patches or [ ]) ++ [ ./seccomp-add-set_notify_fd.patch ];
+              });
+            };
+          in
+          {
+            buildInputs = (old.buildInputs or [ ]) ++ pySeccomp.buildInputs;
+            src = pySeccomp.dist;
+          }
+        );
       };
 
       overlay = workspace.mkPyprojectOverlay {
@@ -94,5 +94,25 @@
       _module.args.prj = {
         inherit workspace python pythonSet;
       };
+
+      # Here we do some hackiness so `uv` can find the `seccomp` Python library,
+      # which is not distributed on `pypi.org`. It is available in `nixpkgs`,
+      # though. For more information:
+      #  - https://github.com/seccomp/libseccomp/issues/461
+      #  - https://github.com/pyproject-nix/pyproject.nix/issues/267
+      devshells.default.devshell.startup.uv-find-links.text =
+        let
+          uvFindLinks = pkgs.symlinkJoin {
+            name = "uv-links";
+            paths = [
+              python.pkgs.seccomp.dist
+            ];
+          };
+        in
+        # bash
+        ''
+          export UV_FIND_LINKS=$PWD/.uv-find-links
+          ln -sfT ${uvFindLinks} "$UV_FIND_LINKS"
+        '';
     };
 }

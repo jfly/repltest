@@ -21,17 +21,7 @@
           # Build virtual environment, with local packages being editable.
           #
           # Enable all optional dependencies for development.
-          virtualenv = editablePythonSet.mkVirtualEnv "repl-driver-dev-env" (
-            prj.workspace.deps.all
-            // {
-              # TODO: remove this and move it to `pyproject.toml`. See:
-              # - https://github.com/seccomp/libseccomp/issues/461
-              # - https://github.com/pyproject-nix/pyproject.nix/issues/267 for an idea for
-              #   how to do it with `UV_FIND_LINKS`.
-              "seccomp" = [ ];
-            }
-          );
-
+          virtualenv = editablePythonSet.mkVirtualEnv "repl-driver-dev-env" prj.workspace.deps.all;
         in
         {
           packages = [

@@ -23,5 +23,6 @@
     {
       packages.test-repls = test-repls;
       devshells.default.packages = [ test-repls ];
+      _module.args.prj-test-repls = test-repls;
     };
 }

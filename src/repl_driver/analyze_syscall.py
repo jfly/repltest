@@ -28,11 +28,11 @@ class Syscall:
     could_indicate_desire_to_read_fd: bool
 
     def indicates_desire_to_read_fd(self, fd: int) -> bool:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: no cover
 
     @classmethod
     def parse_seccomp(cls, notify: seccomp.Notification) -> Self:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: no cover
 
 
 class ReadSyscall(Syscall):

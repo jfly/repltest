@@ -6,12 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pyte>=0.8.2",
-    "python-ptrace>=0.9.9",
-    # TODO: add this. See:
-    # - https://github.com/seccomp/libseccomp/issues/461
-    # - https://github.com/pyproject-nix/pyproject.nix/issues/267 for an idea for
-    #   how to do it with `UV_FIND_LINKS`.
-    # "seccomp",
+    "seccomp>=2.6.0",
 ]
 
 [dependency-groups]
@@ -27,7 +22,13 @@ extend-select = ["I"]
 addopts = [
     # https://docs.pytest.org/en/stable/explanation/goodpractices.html#which-import-mode
     "--import-mode=importlib",
+    "--cov=repl_driver",
 ]
+# Treat warnings as errors.
 filterwarnings = [
     "error",
 ]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
