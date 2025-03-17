@@ -5,6 +5,10 @@
     { prj-test-repls, pkgs, ... }:
     let
       workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
+        # We patch `psutil` below, so we need to ensure we build it from sdist
+        # rather than a wheel.
+        config.no-binary-package = [ "psutil" ];
+
         workspaceRoot = builtins.toString (
           lib.fileset.toSource {
             root = ./..;
@@ -72,6 +76,23 @@
             src = pySeccomp.dist;
           }
         );
+
+        # Patch psutil to include fancier `open_files` support. This relies
+        # upon the `config.no-binary-package` above to ensure we build from sdist.
+        psutil = prev.psutil.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [
+            (pkgs.fetchpatch {
+              name = "Add support for getting *all* files a process has open";
+              url = "https://patch-diff.githubusercontent.com/raw/giampaolo/psutil/pull/2524.patch";
+              hash = "sha256-sHHWTz3SF6Sx39t+UCWwVSx9K6qb3rdF5rtW5xW30VQ=";
+            })
+          ];
+          nativeBuildInputs = old.nativeBuildInputs ++ [
+            (final.resolveBuildSystem {
+              setuptools = [ ];
+            })
+          ];
+        });
       };
 
       overlay = workspace.mkPyprojectOverlay {

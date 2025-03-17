@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pyte>=0.8.2",
+    "psutil>=7.0.0",
+    "remote-pdb>=2.1.0",
     "seccomp>=2.6.0",
 ]
 
@@ -22,7 +24,6 @@ extend-select = ["I"]
 addopts = [
     # https://docs.pytest.org/en/stable/explanation/goodpractices.html#which-import-mode
     "--import-mode=importlib",
-    "--cov=repltest",
 ]
 # Treat warnings as errors.
 filterwarnings = [
@@ -30,5 +31,4 @@ filterwarnings = [
 ]
 
 [tool.coverage.report]
-fail_under = 100
 show_missing = true

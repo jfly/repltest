@@ -52,7 +52,7 @@ int main() {
 
     ssize_t count = readline_raw(buf, sizeof(buf));
     if (count == 0) {
-      puts("\nBye!");
+      puts("Bye!");
       exit(0);
     }
 

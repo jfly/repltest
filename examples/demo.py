@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 
-from repltest import ReplDriver
+from repltest import drive_repl
 
 
 def demo():
@@ -19,12 +19,11 @@ def demo():
         sys.stdout.buffer.write(out)
         sys.stdout.flush()
 
-    driver = ReplDriver(
+    drive_repl(
         args=["python"],
         on_output=on_output,
         input_callback=lambda: inputs.pop(0).encode(),
     )
-    driver.check_returncode()
 
 
 def main():

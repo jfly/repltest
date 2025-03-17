@@ -37,18 +37,18 @@ You can handle 1) with a clever regex, but 2) requires fiddly logic.
 
 ## The big idea
 
-`repl-driver` takes a completely different approach. Rather than trying to
+`repltest` takes a completely different approach. Rather than trying to
 guess when the program is waiting for input, we just check if it is trying to
 read from stdin. That allows us to provide a callback API for driving REPLs. No
 regexes required!
 
-For example, here's how to reproduce the above shell session with `repl-driver`:
+For example, here's how to reproduce the above shell session with `repltest`:
 
 `examples/demo.py`:
 
 ```python
 import sys
-from repltest import ReplDriver
+from repltest import drive_repl
 
 inputs = [
     'def query():\n',
@@ -58,7 +58,7 @@ inputs = [
     "__import__('time').sleep(5); quit()\n",
 ]
 
-ReplDriver(
+drive_repl(
     args=["bash"],
     on_output=sys.stdout.write,
     input_callback=lambda: inputs.pop(0).encode(),
