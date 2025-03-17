@@ -1,7 +1,7 @@
 [project]
-name = "repl-driver"
+name = "repltest"
 version = "0.1.0"
-description = "Python library for driving REPLs. Sort of like `pexpect`, but without the waiting or regexes."
+description = "Python library for testing/driving REPLs. Sort of like `pexpect`, but without the waiting or regexes."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -22,7 +22,7 @@ extend-select = ["I"]
 addopts = [
     # https://docs.pytest.org/en/stable/explanation/goodpractices.html#which-import-mode
     "--import-mode=importlib",
-    "--cov=repl_driver",
+    "--cov=repltest",
 ]
 # Treat warnings as errors.
 filterwarnings = [

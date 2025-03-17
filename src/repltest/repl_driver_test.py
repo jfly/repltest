@@ -6,28 +6,18 @@ import pytest
 from .exceptions import ReplTimeoutException
 from .repl_driver import ReplDriver
 
-# Not a timeout we expect to hit, just something to make sure if
-# something goes wrong the tests stop rather than hang.
+# Not a timeout we expect to hit, just something to
+# ensure that the tests don't run forever.
 TIMEOUT_FOR_TESTS = dt.timedelta(seconds=10)
 
-SIMPLE_REPLS = [
+REPLS = [
     "test-repl-read-cooked",
-    # <<< TODO: test-repl-read-raw >>>
-    # <<< "test-repl-readline-async",
-]
-
-MULTILINE_REPLS = [
-    # <<< TODO >>>
+    "test-repl-readline-async",
 ]
 
 
-@pytest.fixture(params=SIMPLE_REPLS + MULTILINE_REPLS)
+@pytest.fixture(params=REPLS)
 def any_repl(request: _pytest.fixtures.SubRequest):
-    return request.param
-
-
-@pytest.fixture(params=MULTILINE_REPLS)
-def multiline_repl(request: _pytest.fixtures.SubRequest):
     return request.param
 
 
@@ -70,11 +60,8 @@ class TestReplDriver:
             b"<< prompt> \n",
             b">> prompt> \r\nprompt> \r\nprompt> ",
             b"<< \x04",
-            b">> Bye!\r\n",
+            b">> \r\nBye!\r\n",
         ]
-
-    def test_multiline(self, multiline_repl: str):
-        pass  # <<< TODO >>>
 
     def test_timeout(self):
         def assert_not_called(*_args, **_kwargs):

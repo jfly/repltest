@@ -1,7 +1,10 @@
-# `repl-driver`
+# `repltest`
 
-`repl-driver` is a Python library for driving REPLs. Think of it like
-`pexpect`, but without the waiting or regexes.
+`repltest` is a tool for verifying that REPL sessions do what they say they do.
+
+It also includes a Python library (`repltest.Driver`) that can be useful for
+programmatically controlling REPLs. Sort of like `pexpect`, but without the
+waiting or regexes.
 
 ## Motivation
 
@@ -45,7 +48,7 @@ For example, here's how to reproduce the above shell session with `repl-driver`:
 
 ```python
 import sys
-from repl_driver import ReplDriver
+from repltest import ReplDriver
 
 inputs = [
     'def query():\n',

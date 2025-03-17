@@ -1,10 +1,9 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
-ssize_t readline(char *buf, ssize_t b_bytes) {
+ssize_t readline_raw(char *buf, ssize_t b_bytes) {
   ssize_t read_bytes = 0;
 
   while (true) {
@@ -21,12 +20,13 @@ ssize_t readline(char *buf, ssize_t b_bytes) {
       exit(1);
     } else if (count == 0) {
       // We just read nothing. Likely because the user sent EOT.
-      // If we haven't read anything yet, return "". If we have, then keep
-      // reading until we get a full line. (This behavior is inspired by how the
-      // Python REPL works).
       if (read_bytes == 0) {
+        // If we haven't read anything yet, return "".
         return 0;
       } else {
+        // If we have read something, then ignore and keep reading until we get
+        // a full line. (This behavior is inspired by how the Python REPL
+        // works).
         continue;
       }
     }
@@ -50,13 +50,13 @@ int main() {
     printf("%s", prompt);
     fflush(stdout);
 
-    ssize_t count = readline(buf, sizeof(buf));
+    ssize_t count = readline_raw(buf, sizeof(buf));
     if (count == 0) {
-      puts("Bye!");
+      puts("\nBye!");
       exit(0);
     }
 
-    write(STDOUT_FILENO, buf, strlen(buf));
+    fputs(buf, stdout);
   }
 
   return 0;

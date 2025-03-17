@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 
-from repl_driver import ReplDriver
+from repltest import ReplDriver
 
 
 def demo():

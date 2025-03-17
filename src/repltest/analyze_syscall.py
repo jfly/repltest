@@ -103,31 +103,6 @@ SYSCALLS_THAT_COULD_INDICATE_WANTS_STDIN = [
 ]
 
 
-# TODO: need to add `pselect6` for sh.
-# <<< assert syscall.name == "pselect6"
-# <<< nfds_arg: SyscallArgument = syscall.arguments[0]
-# <<< fd_set_arg: SyscallArgument = syscall.arguments[1]
-# <<< nfds = cast(int, nfds_arg.value)
-# <<<
-# <<< # Ignore the end of a select, we're only interested in the start
-# <<< # of one (to check if the process is trying to read from stdin).
-# <<< if syscall.result is not None:
-# <<<     return
-# <<<
-# <<< fd_set: set[int] = set(
-# <<<     x
-# <<<     for x in fd_set_arg.readBits(
-# <<<         fd_set_arg.value,
-# <<<         FD_SETSIZE,
-# <<<         format=lambda x: x,  # type: ignore
-# <<<     )
-# <<<     if int(x) < nfds
-# <<< )
-# <<< for fd in fd_set:
-# <<<     if is_tty(fd):
-# <<<         self.input_wanted_newlines_read = self.newlines_read
-
-
 def get_syscall_from_seccomp_notify(notify: seccomp.Notification) -> Syscall:
     syscall_class_by_id: dict[int, type[Syscall]] = {
         seccomp.resolve_syscall(seccomp.Arch(), syscall.name): syscall

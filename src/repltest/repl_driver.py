@@ -75,60 +75,72 @@ class ReplDriver:
                 notify_fd = f.get_notify_fd()
                 socket.send_fds(
                     child_socket,
-                    [b"notify_fd, subsidiary_fd"],
-                    [notify_fd, pty.STDIN_FILENO],
+                    [b"notify_fd"],
+                    [notify_fd],
                 )
 
             os.execvp(self._args[0], self._args)
         else:
-            child_socket.close()
-            with parent_socket:
-                msg, fds, _flags, _addr = socket.recv_fds(parent_socket, 1024, 2)
+            # Get the other side ("subsidiary") of the PTY.
+            subsidiary_path = os.ptsname(manager_fd)
+            self._subsidiary_fd = os.open(subsidiary_path, os.O_RDWR)
 
-            assert msg == b"notify_fd, subsidiary_fd", f"Unexpected message: {msg}"
-
-            self._notify_fd, self._subsidiary_fd = fds
             self._child_pid = pid
             self._manager_fd = manager_fd
-
-            self._syscall_filter = seccomp.SyscallFilter(seccomp.ALLOW)
-            self._syscall_filter.set_notify_fd(self._notify_fd)
-
-            # Python's `signal.set_wakeup_fd` doesn't seem to work unless you've
-            # actually installed a handler for the relevant signal. This doesn't seem to be documented anywhere :(.
-            # The pattern in the wild seems to be to install a dummy handler, e.g.:
-            # https://github.com/kovidgoyal/vise/blob/451bc7ecd991f56c9924fd40495f0d9e4b5bb1d5/vise/main.py#L162-L163
-            # TODO: file an issue with CPython, perhaps we can at least improve the docs?
-            og_sigchild_handler = signal.signal(
-                signal.SIGCHLD, lambda signum, frame: None
-            )
-
-            self._signal_socket_r, signal_socket_w = socket.socketpair()
-            signal_socket_w.setblocking(False)
-            og_fd = signal.set_wakeup_fd(signal_socket_w.fileno())
-
             try:
-                with self._signal_socket_r, signal_socket_w:
-                    self._loop()
+                self._in_parent(parent_socket, child_socket)
             finally:
-                signal.set_wakeup_fd(og_fd)
-                signal.signal(signal.SIGCHLD, og_sigchild_handler)
+                # Ensure we always reap the child process.
+                self._maybe_reap_child(block=True)
 
-                self._syscall_filter.reset()
-                # `libseccomp::seccomp_reset` only resets global state if `ctx == NULL`: https://github.com/seccomp/libseccomp/blob/v2.6.0/src/api.c#L337
-                # `SyscallFilter::reset` always passes a non-null `ctx`: https://github.com/seccomp/libseccomp/blob/v2.6.0/src/python/seccomp.pyx#L640
-                # TODO: file an issue with `libseccomp` asking about how to clean up.
-                # TODO: file an issue with `libseccomp` asking to make it impossible
-                #       to create two `SyscallFilter`s in parallel (at least, I'm
-                #       pretty sure that's a bad idea).
-                os.close(self._notify_fd)
-                self._syscall_filter.set_notify_fd(-1)
-                del self._notify_fd
+                # Make sure we've read everything from the PTY.
+                self._drain_manager_reads()
 
                 os.close(self._manager_fd)
                 del self._manager_fd
                 os.close(self._subsidiary_fd)
                 del self._subsidiary_fd
+
+    def _in_parent(self, parent_socket: socket.socket, child_socket: socket.socket):
+        child_socket.close()
+        with parent_socket:
+            msg, fds, _flags, _addr = socket.recv_fds(parent_socket, 1024, 2)
+
+        assert msg == b"notify_fd", f"Unexpected message: {msg}"
+
+        (self._notify_fd,) = fds
+
+        self._syscall_filter = seccomp.SyscallFilter(seccomp.ALLOW)
+        self._syscall_filter.set_notify_fd(self._notify_fd)
+
+        # Python's `signal.set_wakeup_fd` doesn't seem to work unless you've
+        # actually installed a handler for the relevant signal. This doesn't seem to be documented anywhere :(.
+        # The pattern in the wild seems to be to install a dummy handler, e.g.:
+        # https://github.com/kovidgoyal/vise/blob/451bc7ecd991f56c9924fd40495f0d9e4b5bb1d5/vise/main.py#L162-L163
+        # TODO: file an issue with CPython, perhaps we can at least improve the docs?
+        og_sigchild_handler = signal.signal(signal.SIGCHLD, lambda signum, frame: None)
+
+        self._signal_socket_r, signal_socket_w = socket.socketpair()
+        signal_socket_w.setblocking(False)
+        og_fd = signal.set_wakeup_fd(signal_socket_w.fileno())
+
+        try:
+            with self._signal_socket_r, signal_socket_w:
+                self._loop()
+        finally:
+            signal.set_wakeup_fd(og_fd)
+            signal.signal(signal.SIGCHLD, og_sigchild_handler)
+
+            self._syscall_filter.reset()
+            # `libseccomp::seccomp_reset` only resets global state if `ctx == NULL`: https://github.com/seccomp/libseccomp/blob/v2.6.0/src/api.c#L337
+            # `SyscallFilter::reset` always passes a non-null `ctx`: https://github.com/seccomp/libseccomp/blob/v2.6.0/src/python/seccomp.pyx#L640
+            # TODO: file an issue with `libseccomp` asking about how to clean up.
+            # TODO: file an issue with `libseccomp` asking to make it impossible
+            #       to create two `SyscallFilter`s in parallel (at least, I'm
+            #       pretty sure that's a bad idea).
+            os.close(self._notify_fd)
+            self._syscall_filter.set_notify_fd(-1)
+            del self._notify_fd
 
     def _handle_child_wants_stdin(self):
         logger.debug("%s: Child wants stdin", self._state.name)
@@ -298,11 +310,19 @@ class ReplDriver:
     def _handle_signal(self):
         # Just drain the socket, the contents don't really matter.
         self._signal_socket_r.recv(1024)
+        self._maybe_reap_child(block=False)
+
+    def _maybe_reap_child(self, block: bool):
+        if self._child_pid is None:
+            return
 
         logger.debug(
             "%s: Checking if child %s has exited", self._state.name, self._child_pid
         )
-        pid, waitstatus = os.waitpid(self._child_pid, os.WNOHANG)
+        options = 0
+        if not block:
+            options |= os.WNOHANG
+        pid, waitstatus = os.waitpid(self._child_pid, options)
         if pid == 0:  # pragma: no cover
             logger.debug(
                 "%s: Child %s has not exited. Continuing.",
@@ -319,10 +339,7 @@ class ReplDriver:
             self.returncode,
         )
 
-        # Make sure we've read everything from the
-        # PTY before exiting.
-        self._drain_manager_reads()
-
+        self._child_pid = None
         self._set_state(State.DONE)
 
     def _set_state(self, new_state: State):
