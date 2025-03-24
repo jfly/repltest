@@ -13,6 +13,8 @@ craft regexes that identify when the program is waiting for user input.
 Depending on what you're driving, this is somewhere between annoying to
 impossible. For example, consider this shell session:
 
+`shell-session.txt`:
+
 ```console
 $ python -q
 >>> def query():
@@ -35,46 +37,48 @@ This is hard to drive traditionally:
 
 You can handle 1) with a clever regex, but 2) requires fiddly logic.
 
-## The big idea
+However, `repltest` can handle this with no configuration:
 
-`repltest` takes a completely different approach. Rather than trying to
-guess when the program is waiting for input, we just check if it is trying to
-read from stdin. That allows us to provide a callback API for driving REPLs. No
-regexes required!
-
-For example, here's how to reproduce the above shell session with `repltest`:
-
-`examples/demo.py`:
-
-```python
-import sys
-from repltest import drive_repl
-
-inputs = [
-    'def query():\n',
-    '  return input("Favorite color? ")\n',
-    'query()\n',
-    "foo()\n",
-    "__import__('time').sleep(5); quit()\n",
-]
-
-drive_repl(
-    args=["bash"],
-    on_output=sys.stdout.write,
-    input_callback=lambda: inputs.pop(0).encode(),
-)
+```console
+$ repltest --entrypoint=sh shell-session.txt
+<<<
 ```
 
-```
-$ python examples/demo.py
-...
-```
+# How it works
 
-## How it works
+`repltest` only works with REPLs that follow these rules:
 
-In short, we achieve this by using `ptrace(2)` to detect if a subprocess is
-trying to do a `read(2)` of stdin. The details are a bit messy:
+1. There is a non-zero width prompt whenever a user is expected to enter a command.
+  - Multiline input is OK, but there still must be a prompt, even if it's all
+    whitespace.
 
-- Some processes use tools like `select` to check if stdin is <<<
-- Async <<<
-- Portability <<<
+    For example, this is OK:
+
+    ```console
+    $ nix repl --quiet
+    nix-repl> a =
+              42
+
+    nix-repl>
+    ```
+
+    There are 3 prompts in the above session:
+
+    1. `nix-repl> `
+    2. `          `
+    3. `nix-repl> `
+
+    But this is not OK (there is no prompt):
+
+    ```console
+    $ python -c 'print(input())'
+    hello, world
+    hello, world
+    ```
+2. The REPL disables TTY `ECHO` when prompting the user, and re-enables `ECHO`
+   when executing a command.
+  - This is normal for REPLs that provide features like history and tab
+    completion. For example, anything using the [`readline` library](https://tiswww.cwru.edu/php/chet/readline/rltop.html).
+  - Very simple programs that just `read(STDIN_FILENO)` probably leave `ECHO`
+    enabled, and won't work with `repltest`. If you run into such a REPL,
+    consider adding `readline` support to it!

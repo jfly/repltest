@@ -42,6 +42,10 @@ ssize_t readline_raw(char *buf, ssize_t b_bytes) {
 }
 
 int main() {
+  puts("This is a nice");
+  puts("... long");
+  puts("multiline intro.");
+
   const char *prompt = "prompt> ";
 
   char buf[1024];

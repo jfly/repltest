@@ -1,4 +1,5 @@
 import datetime as dt
+import shlex
 from pprint import pprint
 
 import _pytest.fixtures
@@ -8,15 +9,14 @@ from .drive_repl import drive_repl
 from .exceptions import ReplProcessException, ReplTimeoutException
 
 REPLS = [
-    ["test-repl-read-cooked"],
-    ["test-repl-readline-async", "poll"],
-    ["test-repl-readline-async", "select"],
+    "test-repl-readline-async poll",
+    "test-repl-readline-async select",
 ]
 
 
 @pytest.fixture(params=REPLS)
 def any_repl(request: _pytest.fixtures.SubRequest):
-    return request.param
+    return shlex.split(request.param)
 
 
 class TestDriveRepl:
@@ -73,7 +73,7 @@ class TestDriveRepl:
         )
 
         assert events == [
-            ">> prompt> ",
+            ">> This is a nice\r\n... long\r\nmultiline intro.\r\nprompt> ",
             "<< foo\n",
             ">> foo\r\nfoo\r\nprompt> ",
             "<< \n",
@@ -91,6 +91,15 @@ class TestDriveRepl:
                 inputs=[
                     "sleep 5\n",
                 ],
+                timeout=dt.timedelta(milliseconds=100),
+            )
+
+    def test_read_with_echo(self):
+        # We don't support processes that read from stdin with ECHO enabled.
+        with pytest.raises(ReplTimeoutException):
+            self._drive(
+                args=["test-repl-read-cooked"],
+                inputs=[],
                 timeout=dt.timedelta(milliseconds=100),
             )
 

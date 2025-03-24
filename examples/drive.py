@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 
 from repltest import drive_repl
@@ -7,11 +8,14 @@ from repltest import drive_repl
 
 def demo():
     inputs = [
+        "python -q\n",
         "def query():\n",
         'return input("Favorite color? ")\n',
         "\n",
         "query()\n",
         "red\n",
+        "quit()\n",
+        'echo -n "$ " && sleep 1 && echo\n',
         "\x04",  # EOT: end of transmission
     ]
 
@@ -20,7 +24,8 @@ def demo():
         sys.stdout.flush()
 
     drive_repl(
-        args=["python"],
+        args=["sh"],
+        env={**os.environ, "PS1": "$ "},
         on_output=on_output,
         input_callback=lambda: inputs.pop(0).encode(),
     )

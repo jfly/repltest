@@ -106,7 +106,6 @@ void print_help(char *arg0) {
 }
 
 int main(int argc, char **argv) {
-
   if (argc != 2) {
     fprintf(stderr, "You must specify exactly 1 poll mechanism.\n");
     exit(1);
@@ -124,6 +123,10 @@ int main(int argc, char **argv) {
     fprintf(stderr, "No poll mechanism found called %s\n", requested_mechanism);
     exit(1);
   }
+
+  puts("This is a nice");
+  puts("... long");
+  puts("multiline intro.");
 
   // Disable bracketed paste: it adds a lot of ANSI
   // escape sequence noise to the output.
