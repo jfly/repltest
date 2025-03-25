@@ -15,3 +15,6 @@ Run the tests:
 ```console
 pytest
 ```
+
+Note: all of the examples in [./examples/]()./examples/) are tested with
+`repltest` itself!

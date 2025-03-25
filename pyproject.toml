@@ -5,8 +5,9 @@ description = "Python library for testing/driving REPLs. Sort of like `pexpect`,
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pyte>=0.8.2",
+    "click>=8.1.8",
     "psutil>=7.0.0",
+    "pyte>=0.8.2",
 ]
 
 [dependency-groups]
@@ -14,6 +15,9 @@ dev = [
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
 ]
+
+[project.scripts]
+repltest = "repltest.cli:main"
 
 [tool.ruff.lint]
 extend-select = ["I"]

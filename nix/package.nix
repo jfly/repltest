@@ -1,24 +1,27 @@
+{ inputs, ... }:
+
 {
   perSystem =
-    { prj, ... }:
+    {
+      self',
+      pkgs,
+      prj,
+      ...
+    }:
     let
-      repl-driver = prj.pythonSet.repl-driver;
+      repltest = prj.pythonSet.repltest;
+
+      inherit (pkgs.callPackages inputs.pyproject-nix.build.util { }) mkApplication;
     in
     {
       checks = {
-        inherit (repl-driver.passthru.tests) pytest;
+        inherit (repltest.passthru.tests) pytest;
       };
 
-      packages.wheel = repl-driver.override {
-        pyprojectHook = prj.pythonSet.pyprojectDistHook;
+      packages.default = self'.packages.repltest;
+      packages.repltest = mkApplication {
+        venv = prj.pythonSet.mkVirtualEnv "application-env" prj.workspace.deps.default;
+        package = repltest;
       };
-
-      packages.sdist =
-        (repl-driver.override {
-          pyprojectHook = prj.pythonSet.pyprojectDistHook;
-        }).overrideAttrs
-          (old: {
-            env.uvBuildType = "sdist";
-          });
     };
 }

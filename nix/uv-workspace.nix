@@ -12,31 +12,35 @@
               ../pyproject.toml
               ../uv.lock
               ../src
+              # The README and examples are all tested by the Python unit tests.
+              ../README.md
+              ../examples
             ];
           }
         );
       };
 
       pyprojectOverrides = final: prev: {
-        repl-driver = prev.repl-driver.overrideAttrs (old: {
+        repltest = prev.repltest.overrideAttrs (old: {
           # Add tests to `passthru`.
           # From: https://pyproject-nix.github.io/uv2nix/patterns/testing.html#testing
           passthru = old.passthru // {
             tests =
               let
                 # Construct a virtual environment with only the `dev` dependency-group.
-                virtualenv = final.mkVirtualEnv "repl-driver-pytest-env" {
-                  repl-driver = [ "dev" ];
+                virtualenv = final.mkVirtualEnv "${final.repltest.name}-pytest-env" {
+                  repltest = [ "dev" ];
                 };
               in
               (old.tests or { })
               // {
                 pytest = pkgs.stdenv.mkDerivation {
-                  name = "${final.repl-driver.name}-pytest";
-                  inherit (final.repl-driver) src;
+                  name = "${final.repltest.name}-pytest";
+                  inherit (final.repltest) src;
                   nativeBuildInputs = [
                     virtualenv
                     prj-test-repls
+                    pkgs.bashInteractive
                   ];
 
                   dontConfigure = true;

@@ -1,21 +1,21 @@
 # `repltest`
 
-`repltest` is a tool for verifying that REPL sessions do what they say they do.
+`repltest` is a tool for verifying that REPL transcripts do what they say they do.
 
 It also includes a Python library (`repltest.Driver`) that can be useful for
 programmatically controlling REPLs. Sort of like `pexpect`, but without the
 waiting or regexes.
 
-## Motivation
+## Demo
 
 If you want to drive a REPL with a tool like `pexpect`, you have to carefully
 craft regexes that identify when the program is waiting for user input.
 Depending on what you're driving, this is somewhere between annoying to
-impossible. For example, consider this shell session:
+impossible. For example, consider this shell transcript:
 
-`shell-session.txt`:
+`transcript.txt`:
 
-```console
+```console test-file="transcript.txt"
 $ python -q
 >>> def query():
 ...   return input("Favorite color? ")
@@ -37,48 +37,74 @@ This is hard to drive traditionally:
 
 You can handle 1) with a clever regex, but 2) requires fiddly logic.
 
-However, `repltest` can handle this with no configuration:
+`repltest` can handle this with very little configuration. It just needs an
+entrypoint and a transcript:
 
-```console
-$ repltest --entrypoint=sh shell-session.txt
-<<<
+```console test-entrypoint=sh
+$ repltest --entrypoint=sh transcript.txt
+Success! The test session matched the transcript.
+$
 ```
 
-# How it works
+## Docs
+
+In addition to this `README`, take a look through the [examples](./examples/).
+
+## How it works
 
 `repltest` only works with REPLs that follow these rules:
 
 1. There is a non-zero width prompt whenever a user is expected to enter a command.
-  - Multiline input is OK, but there still must be a prompt, even if it's all
-    whitespace.
 
-    For example, this is OK:
+   Multiline input is OK, but there still must be a prompt, even if it's all
+   whitespace.
 
-    ```console
-    $ nix repl --quiet
-    nix-repl> a =
-              42
+   ✅ For example, this is OK:
 
-    nix-repl>
-    ```
+   ```console
+   $ nix repl --quiet
+   nix-repl> a =
+             42
 
-    There are 3 prompts in the above session:
+   nix-repl>
+   ```
 
-    1. `nix-repl> `
-    2. `          `
-    3. `nix-repl> `
+   There are 4 prompts in the above transcript:
 
-    But this is not OK (there is no prompt):
+   1. `$ `
+   2. `nix-repl> `
+   4. `          ` (10 spaces)
+   4. `nix-repl> `
 
-    ```console
-    $ python -c 'print(input())'
-    hello, world
-    hello, world
-    ```
+   ❌ But this is not OK:
+
+   ```console
+   $ python -c 'print(input())'
+   hello, world
+   hello, world
+   ```
+
+   The `$ ` prompt is fine, but then `python` blocks on user input without any
+   prompt.
 2. The REPL disables TTY `ECHO` when prompting the user, and re-enables `ECHO`
    when executing a command.
-  - This is normal for REPLs that provide features like history and tab
-    completion. For example, anything using the [`readline` library](https://tiswww.cwru.edu/php/chet/readline/rltop.html).
-  - Very simple programs that just `read(STDIN_FILENO)` probably leave `ECHO`
-    enabled, and won't work with `repltest`. If you run into such a REPL,
-    consider adding `readline` support to it!
+   - This is normal for REPLs that provide features like history and tab
+     completion. For example, anything using the [`readline` library](https://tiswww.cwru.edu/php/chet/readline/rltop.html).
+   - Very simple programs that just `read(STDIN_FILENO)` probably leave `ECHO`
+     enabled, and won't work with `repltest`. If you run into such a REPL,
+     consider adding `readline` support to it!
+
+## Prior art
+
+This project is *heavily* inspired by
+[tesh](https://github.com/OceanSprint/tesh). I wanted to explore an
+implementation with slightly different design goals:
+
+1. Don't make the user configure prompt regexes.
+2. Render output with a proper VTXXX terminal emulator.
+   [Regexes to strip ANSI escape
+   sequences](https://github.com/OceanSprint/tesh/blob/0.3.2/src/tesh/test.py#L18-L19),
+   until you're dealing with a REPL that moves the cursor around the screen
+   using CSI sequences or `\r`.
+3. Be truly REPL agnostic. AKA: no knowledge of shell semantics [like
+   this](https://github.com/OceanSprint/tesh/blob/0.3.2/src/tesh/test.py#L124-L125).

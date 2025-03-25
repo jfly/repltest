@@ -15,13 +15,12 @@
       ];
 
       test-repls = pkgs.symlinkJoin {
-        name = "repl-driver-test-repls";
+        name = "test-repls";
         paths = lib.attrValues testReplPkgs;
         passthru.pkgs = testReplPkgs;
       };
     in
     {
-      packages.test-repls = test-repls;
       devshells.default.packages = [ test-repls ];
       _module.args.prj-test-repls = test-repls;
     };

@@ -21,7 +21,7 @@
           # Build virtual environment, with local packages being editable.
           #
           # Enable all optional dependencies for development.
-          virtualenv = editablePythonSet.mkVirtualEnv "repl-driver-dev-env" prj.workspace.deps.all;
+          virtualenv = editablePythonSet.mkVirtualEnv "dev-env" prj.workspace.deps.all;
         in
         {
           packages = [

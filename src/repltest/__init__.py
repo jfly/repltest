@@ -1,5 +1,5 @@
-from .drive_repl import drive_repl
+from .repl_driver import ReplDriver
 
 __all__ = [
-    "drive_repl",
+    "ReplDriver",
 ]
