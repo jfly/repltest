@@ -86,8 +86,9 @@ In addition to this `README`, take a look through the [examples](./examples/).
 
    The `$ ` prompt is fine, but then `python` blocks on user input without any
    prompt.
-2. The REPL disables TTY `ECHO` when prompting the user, and re-enables `ECHO`
-   when executing a command.
+2. The REPL disables [TTY
+   `ECHO`](https://www.gnu.org/software/libc/manual/html_node/Local-Modes.html#index-ECHO)
+   when prompting the user, and re-enables `ECHO` when executing a command.
    - This is normal for REPLs that provide features like history and tab
      completion. For example, anything using the [`readline` library](https://tiswww.cwru.edu/php/chet/readline/rltop.html).
    - Very simple programs that just `read(STDIN_FILENO)` probably leave `ECHO`
@@ -100,11 +101,12 @@ This project is *heavily* inspired by
 [tesh](https://github.com/OceanSprint/tesh). I wanted to explore an
 implementation with slightly different design goals:
 
-1. Don't make the user configure prompt regexes.
+1. Don't require the user to configure prompt regexes.
 2. Render output with a proper VTXXX terminal emulator.
-   [Regexes to strip ANSI escape
-   sequences](https://github.com/OceanSprint/tesh/blob/0.3.2/src/tesh/test.py#L18-L19),
-   until you're dealing with a REPL that moves the cursor around the screen
-   using CSI sequences or `\r`.
+   I didn't want to write any [regexes to strip ANSI escape
+   sequences](https://github.com/OceanSprint/tesh/blob/0.3.2/src/tesh/test.py#L18-L19).
+   Striping ANSI escape sequences works well for simple things like color, but
+   quickly falls apart once you're dealing with a REPL that moves the cursor around
+   the screen using CSI sequences or `\r`.
 3. Be truly REPL agnostic. AKA: no knowledge of shell semantics [like
    this](https://github.com/OceanSprint/tesh/blob/0.3.2/src/tesh/test.py#L124-L125).
