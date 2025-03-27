@@ -23,6 +23,8 @@ repltest = "repltest.cli:main"
 extend-select = ["I"]
 
 [tool.pytest.ini_options]
+# Always print a full diff on assertion failures.
+verbosity_assertions = 2
 addopts = [
     # https://docs.pytest.org/en/stable/explanation/goodpractices.html#which-import-mode
     "--import-mode=importlib",
