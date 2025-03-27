@@ -68,11 +68,9 @@ def close_fd(fd: int):
 def create_signal_socket(
     signums: list[signal.Signals],
 ) -> Generator[socket.socket, None, None]:
-    # Python's `signal.set_wakeup_fd` doesn't seem to work unless you've
-    # actually installed a handler for the relevant signal. This doesn't seem to be documented anywhere :(.
-    # The pattern in the wild seems to be to install a dummy handler, e.g.:
-    # https://github.com/kovidgoyal/vise/blob/451bc7ecd991f56c9924fd40495f0d9e4b5bb1d5/vise/main.py#L162-L163
-    # TODO: file an issue with CPython, perhaps we can at least improve the docs?
+    # Python's `signal.set_wakeup_fd` doesn't work unless you've
+    # actually installed a handler for the relevant signal.
+    # See <https://github.com/python/cpython/issues/131803>.
     og_handler_by_signal = {}
     for signum in signums:
         og_handler_by_signal[signum] = signal.signal(signum, lambda signum, frame: None)
