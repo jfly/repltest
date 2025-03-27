@@ -1,4 +1,5 @@
 import datetime as dt
+import os
 import shlex
 from pprint import pprint
 
@@ -28,6 +29,7 @@ class TestDriveRepl:
         # Not a timeout we expect to hit, just something to
         # ensure that the tests don't run forever.
         timeout: dt.timedelta = dt.timedelta(seconds=10),
+        env: dict[str, str] | None = None,
     ):
         events = []
 
@@ -46,6 +48,7 @@ class TestDriveRepl:
 
         repl_driver = ReplDriver(
             entrypoint=entrypoint,
+            env=env,
             input_callback=input_callback,
             on_output=on_output,
             columns=80,
@@ -127,12 +130,16 @@ class TestDriveRepl:
                 "echo hiya\n",
                 "exit\n",
             ],
+            env={
+                **os.environ,
+                "PS1": "$ ",
+            },
         )
 
         assert events == [
-            ">> \x1b[?2004hsh-5.2$ ",
+            ">> \x1b[?2004h$ ",
             "<< echo hiya\n",
-            ">> echo hiya\r\n\x1b[?2004l\rhiya\r\n\x1b[?2004hsh-5.2$ ",
+            ">> echo hiya\r\n\x1b[?2004l\rhiya\r\n\x1b[?2004h$ ",
             "<< exit\n",
             ">> exit\r\n\x1b[?2004l\rexit\r\n",
         ]

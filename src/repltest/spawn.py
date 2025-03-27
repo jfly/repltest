@@ -36,7 +36,7 @@ def graceful_shutdown(
         term_after_seconds = None if term_after is None else term_after.total_seconds()
         exit_code = process.wait(timeout=term_after_seconds)
     except psutil.TimeoutExpired:
-        logger.info("Timed out waiting for %s to exit. Sending SIGTERM", process.pid)
+        logger.warning("Timed out waiting for process to exit. Sending SIGTERM.")
         process.terminate()
 
     if exit_code is None:
@@ -46,9 +46,7 @@ def graceful_shutdown(
             )
             exit_code = process.wait(timeout=kill_after_seconds)
         except psutil.TimeoutExpired:
-            logger.warning(
-                "Timed out waiting for %s to exit. Sending SIGKILL", process.pid
-            )
+            logger.warning("Timed out waiting for process to exit. Sending SIGKILL.")
             process.kill()
 
     if exit_code is None:
@@ -136,7 +134,9 @@ class RunningChild:
                 on_subsidiary_closed=on_subsidiary_closed,
             )
 
-        if self._signal_fd in event_fds:
+        if (
+            self._signal_fd in event_fds
+        ):  # pragma: no cover # this does not reliably happen in our unit tests :(
             event_fds.remove(self._signal_fd)
             self._handle_signal_notification()
 
@@ -164,7 +164,9 @@ class RunningChild:
         assert len(output) > 0
         on_output(self, output)
 
-    def _handle_signal_notification(self):
+    def _handle_signal_notification(
+        self,
+    ):  # pragma: no cover # this does not reliably happen in our unit tests :(
         """
         Handle a signal notification. Note: the only signal we care about
         is SIGCHILD so we can reap dead children.
@@ -218,7 +220,9 @@ class Child:
     def spawn(self) -> Generator[RunningChild, None, None]:
         pid, manager_fd = pty.fork()
 
-        if pid == 0:  # pragma: no cover # coverage can't detect forked children
+        if pid == 0:  # pragma: no cover
+            # coverage.py doesn't store coverage information when you exec:
+            # https://github.com/nedbat/coveragepy/issues/43
             env = dict(os.environ) if self._env is None else self._env
             os.execvpe(self._entrypoint[0], self._entrypoint, env)
         else:
@@ -233,6 +237,9 @@ class Child:
                         signal_fd=signal_socket.fileno(),
                         manager_fd=manager_fd,
                     )
+
+                    # It's a good idea to capture a reference to the child process now to
+                    # protect against pid recycling.
                     process = psutil.Process(child.pid)
 
                     yield child

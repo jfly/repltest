@@ -41,8 +41,15 @@ Found a discrepancy. See diff below:
 |Some bogus output here to demonstrate that `repltest` still|    |█                                                          |
  ---- ----- ------ ---- -- ----------- ---- ---------- -----       +++ +++++ ++++++ ++++ ++ +++++++++++ ++++ ++++++++++ +++++
 |verifies the session even if the entrypoint exits nonzero. |    |                                                           |
- -------- --- ------- ---- -- --- ---------- ----- --------       ++++++++ +++ +++++++ ++++ ++ +++ ++++++++++ +++++ ++++++++ 
+ -------- --- ------- ---- -- --- ---------- ----- --------       ++++++++ +++ +++++++ ++++ ++ +++ ++++++++++ +++++ ++++++++
 +-----------------------------------------------------------+    +-----------------------------------------------------------+
+Final state of screen:
++-----------------------------------------------------------+
+|>>> import os                                              |
+|>>> os._exit(42)                                           |
+|█                                                          |
+|                                                           |
++-----------------------------------------------------------+
 $ echo $?
 1
 $
@@ -78,7 +85,23 @@ And here's an example of SIGHUP resulting in a nonzero exit code:
 ```console test-entrypoint="sh"
 $ EXIT_CODE_ON_HUP=42 repltest --entrypoint="python -q" pyhup.transcript --check-exit-code
 Error: 'python -q' exited with nonzero exit code: 42
+Final state of screen:
++-----------------------------------------------------+
+|>>> import signal, os                                |
+|>>> def handle_hup(signum, frame):                   |
+|...     os._exit(int(os.environ["EXIT_CODE_ON_HUP"]))|
+|...                                                  |
+|>>> signal.signal(signal.SIGHUP, handle_hup)         |
+|<Handlers.SIG_DFL: 0>                                |
+|>>> █                                                |
++-----------------------------------------------------+
 $ echo $?
 1
 $
 ```
+
+## Cleanup
+
+If your entrypoint doesn't exit "naturally" or after SIGHUP, `repltest` will
+escalate to more extreme cleanup measures. See [timeouts.md](./timeouts.md) for
+details.

@@ -1,5 +1,7 @@
 from collections import defaultdict
-from typing import Generator
+from typing import Generator, Self
+
+import pyte
 
 
 class DisplayCell:
@@ -37,7 +39,7 @@ class DisplayLine:
 
 
 class Display:
-    def __init__(self, width: int, height: int, title: str):
+    def __init__(self, width: int, height: int, title: str | None):
         self.width = width
         self.height = height
         self.title = title
@@ -45,6 +47,22 @@ class Display:
         self._lines: dict[int, DisplayLine] = defaultdict(
             lambda: DisplayLine(self.width)
         )
+
+    @classmethod
+    def from_pyte_screen(cls, screen: pyte.Screen) -> Self:
+        display = cls(
+            title=None,
+            width=screen.columns,
+            height=screen.lines,
+        )
+        for y, line in enumerate(screen.display):
+            for x, ch in enumerate(line):
+                display[y][x] = ch
+
+        # Add the cursor.
+        display[screen.cursor.y][screen.cursor.x] = "█"
+
+        return display
 
     def _horizontal_border(self, description: str | None, fill: str = "-"):
         maxlen = self.width - 2  # Leave space for whitespace on left and right.
@@ -62,6 +80,9 @@ class Display:
                 yield " " + annotations + " "
 
         yield self._horizontal_border(None)
+
+    def __str__(self) -> str:
+        return "\n".join(self.rendered_lines())
 
     def __getitem__(self, y: int) -> DisplayLine:
         assert 0 <= y <= self.height

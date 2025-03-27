@@ -5,4 +5,4 @@
 # Python
 __pycache__/
 /.uv-find-links
-/.coverage
+/.coverage*

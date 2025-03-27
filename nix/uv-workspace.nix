@@ -2,9 +2,13 @@
 
 {
   perSystem =
-    { prj-test-repls, pkgs, ... }:
+    { pkgs, ... }:
     let
       workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
+        # We patch `pytest-cov` below, so we need to ensure we build it from sdist
+        # rather than a wheel.
+        config.no-binary-package = [ "pytest-cov" ];
+
         workspaceRoot = builtins.toString (
           lib.fileset.toSource {
             root = ./..;
@@ -21,44 +25,22 @@
       };
 
       pyprojectOverrides = final: prev: {
-        repltest = prev.repltest.overrideAttrs (old: {
-          # Add tests to `passthru`.
-          # From: https://pyproject-nix.github.io/uv2nix/patterns/testing.html#testing
-          passthru = old.passthru // {
-            tests =
-              let
-                # Construct a virtual environment with only the `dev` dependency-group.
-                virtualenv = final.mkVirtualEnv "${final.repltest.name}-pytest-env" {
-                  repltest = [ "dev" ];
-                };
-              in
-              (old.tests or { })
-              // {
-                pytest = pkgs.stdenv.mkDerivation {
-                  name = "${final.repltest.name}-pytest";
-                  inherit (final.repltest) src;
-                  nativeBuildInputs = [
-                    virtualenv
-                    prj-test-repls
-                    pkgs.bashInteractive
-                  ];
-
-                  dontConfigure = true;
-
-                  buildPhase = ''
-                    runHook preBuild
-                    pytest
-                    runHook postBuild
-                  '';
-
-                  installPhase = ''
-                    runHook preInstall
-                    mv htmlcov $out
-                    runHook postInstall
-                  '';
-                };
-              };
-          };
+        # Patch pytest-cov with a workaround for
+        # https://github.com/pytest-dev/pytest-cov/issues/465, which affects
+        # coverage reporting during our tests.
+        pytest-cov = prev.pytest-cov.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [
+            (pkgs.fetchpatch {
+              name = "Ensure source dirs are absolute";
+              url = "https://patch-diff.githubusercontent.com/raw/pytest-dev/pytest-cov/pull/681.patch";
+              hash = "sha256-1OvUhQM1a/tGYopMDnTEt8/jhhuAAZPBJOCy4/88A88=";
+            })
+          ];
+          nativeBuildInputs = old.nativeBuildInputs ++ [
+            (final.resolveBuildSystem {
+              setuptools = [ ];
+            })
+          ];
         });
       };
 
@@ -77,10 +59,27 @@
               pyprojectOverrides
             ]
           );
+
+      # Create an overlay enabling editable mode for all local dependencies.
+      editableOverlay = workspace.mkEditablePyprojectOverlay {
+        root = "$PRJ_ROOT";
+      };
+
+      # Override previous set with our overrideable overlay.
+      editablePythonSet = pythonSet.overrideScope (
+        lib.composeManyExtensions [
+          editableOverlay
+        ]
+      );
     in
     {
       _module.args.prj = {
-        inherit workspace python pythonSet;
+        inherit
+          workspace
+          python
+          pythonSet
+          editablePythonSet
+          ;
       };
     };
 }

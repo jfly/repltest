@@ -63,6 +63,14 @@ def test_incomplete_last_command(tmp_path: Path):
             " ----             ++++        \n"
             "|           |    |█          |\n"
             "+-----------+    +-----------+\n"
+            "Final state of screen:\n"
+            "+-----------+\n"
+            "|$ echo hiya|\n"
+            "|hiya       |\n"
+            "|$ exit     |\n"
+            "|exit       |\n"
+            "|█          |\n"
+            "+-----------+\n"
         ),
     ] == [result.exit_code, result.output]
 
@@ -98,6 +106,13 @@ def test_mismatch(tmp_path: Path):
             "|$ exit       |    |$ █          |\n"
             "|exit         |    |             |\n"
             "+-------------+    +-------------+\n"
+            "Final state of screen:\n"
+            "+-------------+\n"
+            "|$ echo hiya  |\n"
+            "|hiya         |\n"
+            "|$ █          |\n"
+            "|             |\n"
+            "+-------------+\n"
         ),
     ] == [
         result.exit_code,

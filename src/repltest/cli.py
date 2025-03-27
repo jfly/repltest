@@ -1,3 +1,4 @@
+import datetime as dt
 import enum
 import logging
 import shlex
@@ -7,34 +8,11 @@ from pathlib import Path
 import click
 import pyte
 
+from repltest.exceptions import ReplTimeoutException
+
 from .display import Display
 from .repl_driver import ReplDriver
-
-
-@click.command()
-@click.option("-v", "--verbose", count=True)
-@click.option("--entrypoint", required=True)
-@click.option("--check-exit-code/--no-check-exit-code", default=False)
-@click.argument("transcript", type=click.Path(exists=True, path_type=Path))
-def main(entrypoint: str, transcript: Path, verbose: int, check_exit_code: bool):
-    """
-    Verify that the given TRANSCRIPT (a file) can be reproduced with
-    the given ENTRYPOINT.
-    """
-    log_level = logging.WARNING
-    log_level -= 10 * verbose
-    logging.basicConfig(level=log_level)
-
-    result = verify_transcript(
-        entrypoint=entrypoint,
-        transcript=Transcript(transcript.read_text()),
-        check_exit_code=check_exit_code,
-    )
-
-    if len(result.issues) > 0:
-        raise click.ClickException("\n".join(result.issues))
-
-    print("Success! The test session matched the transcript.")
+from .timedelta_cli_type import TIMEDELTA
 
 
 class Transcript:
@@ -132,6 +110,7 @@ def identify_mismatch(
 @dataclass
 class VerifyResult:
     issues: list[str]
+    final_screen: pyte.Screen
 
 
 class MismatchException(Exception):
@@ -140,7 +119,12 @@ class MismatchException(Exception):
 
 
 def verify_transcript(
-    entrypoint: str, transcript: Transcript, check_exit_code: bool
+    entrypoint: str,
+    transcript: Transcript,
+    check_exit_code: bool,
+    timeout: dt.timedelta | None,
+    cleanup_term_after: dt.timedelta | None,
+    cleanup_kill_after: dt.timedelta | None,
 ) -> VerifyResult:
     def handle_input(screen: pyte.Screen, prompt: str) -> bytes | None:
         # Verify the transcript matches the screen up to
@@ -179,17 +163,22 @@ def verify_transcript(
         lines=transcript.height,
         input_callback=handle_input,
         on_output=handle_output,
-        timeout=None,  # TODO: add cli option?
-        cleanup_term_after=None,  # TODO: add cli option?
-        cleanup_kill_after=None,  # TODO: add cli option?
+        timeout=timeout,
+        cleanup_term_after=cleanup_term_after,
+        cleanup_kill_after=cleanup_kill_after,
         check_nonzero_exit_code=False,  # We handle this explicitly.
     )
 
+    issues = []
+
+    mismatch_info = None
     try:
         repl_driver.drive()
     except MismatchException as e:
         # Hit a mismatch partway through.
         mismatch_info = e.mismatch_info
+    except ReplTimeoutException:
+        issues.append("session timed out")
     else:
         # At the very end do a final comparison against the transcript.
         mismatch_info = identify_mismatch(
@@ -200,8 +189,6 @@ def verify_transcript(
             check=Check.FULL_SCREEN,
         )
 
-    issues = []
-
     assert repl_driver.exit_code is not None
     if check_exit_code and repl_driver.exit_code != 0:
         issues.append(
@@ -211,4 +198,60 @@ def verify_transcript(
     if mismatch_info is not None:
         issues.append(f"Found a discrepancy. See diff below:\n{mismatch_info}")
 
-    return VerifyResult(issues=issues)
+    return VerifyResult(issues=issues, final_screen=repl_driver.screen)
+
+
+@click.command()
+@click.option("-v", "--verbose", count=True)
+@click.option("--entrypoint", required=True)
+@click.option("--check-exit-code/--no-check-exit-code", default=False)
+@click.option(
+    "--timeout",
+    type=TIMEDELTA,
+    help="How long the test session is allowed to execute for.",
+)
+@click.option(
+    "--cleanup-term-after",
+    type=TIMEDELTA,
+    help="When cleaning up after a test session, how long to wait after SIGHUP before sending a SIGTERM to the child process.",
+)
+@click.option(
+    "--cleanup-kill-after",
+    type=TIMEDELTA,
+    help="When cleaning up after a test session, how long to wait after SIGTERM before sending a SIGKILL to the child process.",
+)
+@click.argument("transcript", type=click.Path(exists=True, path_type=Path))
+def main(
+    entrypoint: str,
+    transcript: Path,
+    verbose: int,
+    check_exit_code: bool,
+    timeout: dt.timedelta | None,
+    cleanup_term_after: dt.timedelta | None,
+    cleanup_kill_after: dt.timedelta | None,
+):
+    """
+    Verify that the given TRANSCRIPT (a file) can be reproduced with
+    the given ENTRYPOINT.
+    """
+    log_level = logging.WARNING
+    log_level -= 10 * verbose
+    logging.basicConfig(level=log_level)
+
+    result = verify_transcript(
+        entrypoint=entrypoint,
+        transcript=Transcript(transcript.read_text()),
+        check_exit_code=check_exit_code,
+        timeout=timeout,
+        cleanup_term_after=cleanup_term_after,
+        cleanup_kill_after=cleanup_kill_after,
+    )
+
+    if len(result.issues) > 0:
+        raise click.ClickException(
+            "\n".join(result.issues)
+            + "\nFinal state of screen:\n"
+            + str(Display.from_pyte_screen(result.final_screen))
+        )
+
+    print("Success! The test session matched the transcript.")
