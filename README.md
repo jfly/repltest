@@ -2,10 +2,6 @@
 
 `repltest` is a tool for verifying that REPL transcripts do what they say they do.
 
-It also includes a Python library (`repltest.Driver`) that can be useful for
-programmatically controlling REPLs. Sort of like `pexpect`, but without the
-waiting or regexes.
-
 ## Demo
 
 If you want to drive a REPL with a tool like `pexpect`, you have to carefully
