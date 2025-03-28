@@ -5,10 +5,6 @@
     { pkgs, ... }:
     let
       workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
-        # We patch `pytest-cov` below, so we need to ensure we build it from sdist
-        # rather than a wheel.
-        config.no-binary-package = [ "pytest-cov" ];
-
         workspaceRoot = builtins.toString (
           lib.fileset.toSource {
             root = ./..;
@@ -28,7 +24,7 @@
         # Patch pytest-cov with a workaround for
         # https://github.com/pytest-dev/pytest-cov/issues/465, which affects
         # coverage reporting during our tests.
-        pytest-cov = prev.pytest-cov.overrideAttrs (old: {
+        pytest-cov = (prev.pytest-cov.override { sourcePreference = "sdist"; }).overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ [
             (pkgs.fetchpatch {
               name = "Ensure source dirs are absolute";
