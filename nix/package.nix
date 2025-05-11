@@ -10,21 +10,21 @@
       ...
     }:
     let
-      repltest = prj.pythonSet.repltest;
+      project = prj.pythonSet.repltest;
 
       inherit (pkgs.callPackages inputs.pyproject-nix.build.util { }) mkApplication;
     in
     {
       checks = {
-        repltest =
+        ${project.pname} =
           # Modified from: https://pyproject-nix.github.io/uv2nix/patterns/testing.html#testing
           # We use an editable venv for tests because it makes coverage
-          # reporting easier. Without this, you are able to import repltest in
+          # reporting easier. Without this, you are able to import the project in
           # 2 different ways:
           #
           #   1. Relatively through the `src` directory.
           #   2. In the `site-packages` directory of your python env (this
-          #      happens during our "end to end" tests when we run `repltest`
+          #      happens during our "end to end" tests when we run our cli
           #      as a subprocess).
           #
           # It's possible to teach `coverage.py` that multiple paths are
@@ -36,12 +36,12 @@
           let
             # Construct a virtual environment with only the `dev` dependency-group.
             editableVenv = prj.editablePythonSet.mkVirtualEnv "test-env" {
-              repltest = [ "dev" ];
+              ${project.pname} = [ "dev" ];
             };
           in
           pkgs.stdenv.mkDerivation {
-            name = "${prj.editablePythonSet.repltest.name}-pytest";
-            inherit (prj.editablePythonSet.repltest) src;
+            name = "${project.pname}-pytest";
+            inherit (prj.editablePythonSet.${project.pname}) src;
             nativeBuildInputs = [
               editableVenv
               prj-test-repls
@@ -67,10 +67,10 @@
           };
       };
 
-      packages.default = self'.packages.repltest;
-      packages.repltest = mkApplication {
+      packages.default = self'.packages.${project.pname};
+      packages.${project.pname} = mkApplication {
         venv = prj.pythonSet.mkVirtualEnv "application-env" prj.workspace.deps.default;
-        package = repltest;
+        package = project;
       };
     };
 }
