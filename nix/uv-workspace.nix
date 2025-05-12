@@ -5,19 +5,24 @@
     { pkgs, ... }:
     let
       workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
-        workspaceRoot = builtins.toString (
-          lib.fileset.toSource {
-            root = ./..;
-            fileset = lib.fileset.unions [
-              ../pyproject.toml
-              ../uv.lock
-              ../src
-              # The README and examples are all tested by the Python unit tests.
-              ../README.md
-              ../examples
-            ];
-          }
-        );
+        workspaceRoot =
+          # Workaround for https://github.com/pyproject-nix/uv2nix/issues/179
+          /.
+          + (builtins.unsafeDiscardStringContext (
+            builtins.toString (
+              lib.fileset.toSource {
+                root = ./..;
+                fileset = lib.fileset.unions [
+                  ../pyproject.toml
+                  ../uv.lock
+                  ../src
+                  # The README and examples are all tested by the Python unit tests.
+                  ../README.md
+                  ../examples
+                ];
+              }
+            )
+          ));
       };
 
       pyprojectOverrides = final: prev: {
