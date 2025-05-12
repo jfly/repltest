@@ -41,8 +41,6 @@
       imports = [
         ./nix/formatting.nix
         ./nix/uv-workspace.nix
-        ./nix/editable-venv.nix
-        ./nix/package.nix
         ./nix/test-repls.nix
       ];
     };

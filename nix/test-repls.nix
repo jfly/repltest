@@ -22,6 +22,6 @@
     in
     {
       devshells.default.packages = [ test-repls ];
-      _module.args.prj-test-repls = test-repls;
+      uv2nix.nativeCheckInputs = [ test-repls ];
     };
 }
